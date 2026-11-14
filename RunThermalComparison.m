@@ -25,7 +25,7 @@ end
     MODEL = 'ElectricVehicleThermalManagementWithHeatPump';
 
     %% ── Ensure matlab2tikz is on path ───────────────────────────────────
-    matlab2tikz_path = 'ThermalEnergyManagementWithHybridControlFramework/PlotingFunctions/matlab2tikz';
+    matlab2tikz_path = fullfile(repoRoot, 'PlotingFunctions', 'matlab2tikz', 'src');
 
     if exist('matlab2tikz', 'file') ~= 2 && exist('matlab2tikz', 'file') ~= 6
         if exist(matlab2tikz_path, 'dir')
@@ -71,11 +71,11 @@ end
     temps = temp_sel(:)';   % row vector
 
     %% ── Validate temperatures ────────────────────────────────────────────
-    valid_temps = [-5, -7, -10];
+    valid_temps = [0, -5, -7, -10, -12, -15, -20, -25, -30];
     for T = temps
         if ~ismember(T, valid_temps)
             error('RunThermalComparison:badTemp', ...
-                  'Temperature %d not supported. Choose from: -5, -7, -10', T);
+                  'Temperature %d not supported. Choose from: %s', T, mat2str(valid_temps));
         end
     end
 
@@ -179,6 +179,13 @@ fprintf('[Output] All files will be saved to:\n  %s\n', outdir);
             catch ME
                 warning('RunThermalComparison:simlogSave', ...
                         'Failed to save simlog: %s', ME.message);
+            end
+
+            % 6b) Export 1-Hz training data -> Results/run_.../training_data_<ctrl>_T<|T|>.mat
+            try
+                export_training_data(simOut, simlog, T, ctrl, outdir);
+            catch ME
+                warning('RunThermalComparison:export', 'Training-data export failed: %s', ME.message);
             end
 
             % 7) Store results
@@ -288,7 +295,9 @@ function set_cold_weather_scenario(MODEL, T_amb_C)
     set_param([subsys '/Desired Temperature [degC]'], 'Value', '21');
     set_param([subsys '/Number of Occupants'],        'Value', '1');
 
-    ref_p_map = containers.Map([-5, -7, -10], [0.25, 0.22, 0.20]);
+    % Initial refrigerant pressure [MPa] ~ R134a saturation pressure at ambient (CoolProp)
+    ref_p_map = containers.Map([0, -5, -7, -10, -12, -15, -20, -25, -30], ...
+                               [0.29, 0.25, 0.22, 0.20, 0.185, 0.165, 0.13, 0.105, 0.085]);
 
     assignin(mws, 'cabin_p_init',           0.101325);
     assignin(mws, 'cabin_T_init',           T_amb_C);
@@ -875,7 +884,9 @@ function [ctrl_sel, temp_sel] = interactive_menu()
     fprintf('  2 — -7°C\n');
     fprintf('  3 — -10°C\n');
     fprintf('  4 — All three\n');
-    temp_choice = input('Choice [1/2/3/4]: ');
+    fprintf('  5 — New cold set: 0, -12, -15, -20\n');
+    fprintf('  6 — Extra cold: -25, -30\n');
+    temp_choice = input('Choice [1-6]: ');
 
     switch temp_choice
         case 1
@@ -886,6 +897,10 @@ function [ctrl_sel, temp_sel] = interactive_menu()
             temp_sel = -10;
         case 4
             temp_sel = [-5, -7, -10];
+        case 5
+            temp_sel = [0, -12, -15, -20];
+        case 6
+            temp_sel = [-25, -30];
         otherwise
             error('Invalid choice');
     end
