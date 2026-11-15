@@ -73,10 +73,18 @@ function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
     for k = 1:3
         [wallT(:,k), missing] = grab(simlog, sprintf('Cabin.Cabin_Heat_Transfer.%s_Thermal_Mass.T', walls{k}), 'degC', t1hz, missing);
     end
-    trainingData.cabIntT_C = mean(wallT, 2);                        % simple average (COM uses mass-weighted)
+    trainingData.cabIntT_C = mean(wallT, 2);                        % simple average (kept for compatibility)
+    trainingData.glassT_C = wallT(:,1); trainingData.doorsT_C = wallT(:,2); trainingData.roofT_C = wallT(:,3);
+    % Same definition as the COM's cabin-interior state (cabMdl in dynamics_mexfreeNew.m): weighted by m*cp
+    wallC = [36.4*840, 75.0*500, 30.0*500];                         % glass, doors, roof [J/K]
+    trainingData.cabIntTw_C = wallT * wallC(:) / sum(wallC);
     [trainingData.clntInvTin_C,     missing] = grab(simlog, 'Inverter.Coolant_Jacket.A.T',                        'degC', t1hz, missing);
     [trainingData.heaterClntTout_C, missing] = grab(simlog, 'Heater.Heater_Coolant_Volume.T_I',                   'degC', t1hz, missing);
     [trainingData.ventAirT_C,       missing] = grab(simlog, 'Inner_Condenser.Pressure_Temperature_Sensor_MA1.T',  'degC', t1hz, missing);
+
+    % ---- Compressor inlet state -> superheat (computed in Python with CoolProp from p and u, or T if logged) ----
+    [trainingData.compInU_kJkg, missing] = grab(simlog, 'Compressor.Compressor.A.u', 'kJ/kg', t1hz, missing);
+    [trainingData.compInT_C,    missing] = grab(simlog, 'Compressor.Compressor.A.T', 'degC',  t1hz, missing);
 
     % ---- Vehicle speed: not in the Simscape log, taken from the drive-cycle file ----
     % (same file and variable as init_nmpc.m; the Scenario block uses the 'DriveCycle' entry, in km/h)

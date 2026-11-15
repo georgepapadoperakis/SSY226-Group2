@@ -81,7 +81,7 @@ end
 
    %% ── Output folder with timestamp ────────────────────────────────────────
 timestamp = datestr(now, 'yyyy_mm_dd_HH_MM_SS');
-outdir = fullfile(pwd, 'Results', ['run_' timestamp]);
+outdir = fullfile(repoRoot, 'Results', ['run_' timestamp]);   % anchored to repo, not pwd
 
 if ~exist(outdir, 'dir')
     mkdir(outdir);
