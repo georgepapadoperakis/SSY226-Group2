@@ -544,7 +544,8 @@ heatk.superHeat = 2;
 tau_fan = 5.0;
 alpha   = exp(-dt / tau_fan);
 
-tuneS       = prepParaVec(x_meas_pk, Tamb_C, Stuned.tunedVariables);
+%%tuneS       = prepParaVec(x_meas_pk, Tamb_C, Stuned.tunedVariables);
+tuneS       = get_tuneS(x_meas_pk, Tamb_C, batImeas, speed, Stuned.tunedVariables);
 [ctrl, est] = thermalLogicAndEstimation(x_meas_pk, inputInit, heatk);
 est.speed   = heatk.speed;
 

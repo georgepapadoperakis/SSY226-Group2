@@ -1,0 +1,17 @@
+Supervised scheduler for p1..p11: 7200 rows in 60 windows; 12 whole windows held out (1440 rows)
+Normalised RMSE on held-out windows (RMSE / std of the parameter; lower is better)
+param   interp (prepParaVec)    linear        NN   labels at bound
+p1                     2.065     1.730     2.144               3 %
+p2                     1.355     0.494     0.505               3 %
+p3                     1.854     1.621     1.791               5 %
+p4                     1.907     1.810     1.904              47 %
+p5                     1.513     0.733     0.405               7 %
+p6                     0.000     0.000     0.086  one value per temperature
+p7                               constant (5.05)
+p8                     0.000     0.000     0.116  one value per temperature
+p9                     2.048     1.558     1.763              32 %
+p10                    2.585     1.092     0.951              85 %
+p11                    1.449     1.152     1.243              42 %
+mean                   1.478     1.019     1.091
+'labels at bound' = share of identified values sitting at the min or max of their range;
+a high share means the window identification is poorly conditioned for that parameter.

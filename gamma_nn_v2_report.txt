@@ -1,0 +1,36 @@
+Parameter scheduler v2: 60 identification windows, inputs = ['Tamb_C', 'motT', 'invT', 'dcdcT', 'batT', 'p_in', 'p_out', 'cabIntT', 'cabAirT', 'batI_avg']
+Blocked cross-validation (10 folds of 3 consecutive windows per temperature).
+Normalised RMSE on held-out windows = RMSE / std of the parameter (lower is better; 1.0 = as bad as
+always predicting the mean).
+param     interp     ridge     NN v2   labels at bound
+p1         1.413     1.120     0.997               3 %
+p2         1.414     0.760     0.811               3 %
+p3         1.620     1.321     1.157               5 %
+p4         1.252     1.131     0.993              47 %
+p5         1.335     0.970     0.823               7 %
+p6         0.258     0.415     0.381   one value per temperature
+p7                   constant (5.05)
+p8         0.258     0.597     0.380   one value per temperature
+p9         1.313     1.039     1.180              32 %
+p10        2.704     1.101     1.011              85 %
+p11        1.180     0.941     0.904              42 %
+mean       1.275     0.939     0.864
+Labels at their min/max were down-weighted (weight 0.2) in training, but all labels count here.
+Note: this measures parameter error, not model-prediction error; the real test is
+validate_com_fig2 (Fig. 2 / Table 1), especially at -7 degC which no scheduler has seen.
+
+-7 degC check on the unseen run (30 windows): 0 outside the training envelope (those would fall back to interpolation)
+Same operating points evaluated with T_amb = -10 / -7 / -5 degC (mean over windows);
+the -7 value should lie between the other two.
+  param   NN(T=-10)   NN(T=-7)   NN(T=-5)   windows in between
+  p1          0.321      0.387      0.437              100 %
+  p2          1.831      2.155      2.368              100 %
+  p3          0.731      0.684      0.656              100 %
+  p4          0.292      0.354      0.400              100 %
+  p5          0.884      0.998      1.075              100 %
+  p6          2.451      2.346      2.284              100 %
+  p7          5.050      5.050      5.050              100 %
+  p8          0.940      0.920      0.907              100 %
+  p9          1.807      1.752      1.714              100 %
+  p10         0.476      0.493      0.504              100 %
+  p11         8.834      8.892      8.924              100 %
