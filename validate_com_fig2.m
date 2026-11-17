@@ -16,6 +16,12 @@ function R = validate_com_fig2(modes, temps)
 %   Thermophysical properties are re-evaluated each second from the COM's own
 %   states (CoolProp), as in the MPC. No MPC / IPOPT is needed.
 %
+%   Neural-network DYNAMICS models (option B, from nn_dynamics_model.py) are also
+%   accepted: if nn_<name>.mat contains 'dx_scale', the network REPLACES the COM
+%   for that mode (no p1..p11, no CoolProp) and is driven by exactly the same
+%   inputs, disturbances and initial state:
+%     validate_com_fig2({'interp','dynamics'})      % physics COM vs. NN model
+%
 %   Needs: simlog_rule_T5/T7/T10_export.mat (from export_simlog_runs), init_nmpc,
 %   CasADi, CoolProp. Output: Results/com_validation_<date>/ (figures, table, .mat)
 
@@ -46,14 +52,22 @@ stateIdx   = [1, 2, 3, 5, 9, 6, 7];
 
 for T = temps
     tg = sprintf('T%d', abs(T));
-    D = load_run(sprintf('simlog_rule_%s_export.mat', tg), speedTs);
+    D = load_run(sprintf('simlog_rule_%s_export.mat', tg), speedTs, root, tg);
     fprintf('\n=== %d degC: %d s of reference data ===\n', T, numel(D.t));
     for m = 1:numel(modes)
         mode = modes{m};
         fld = matlab.lang.makeValidName(mode);
         fprintf('[%s] simulating COM open loop ...\n', mode);
+        kind = 'com';
         try
-            tic; [X, ood, nfail] = simulate_com(F, packParams, D, mode, TV); el = toc;
+            Wdyn = load_dynamics_model(root, mode);
+            if isempty(Wdyn)
+                tic; [X, ood, nfail] = simulate_com(F, packParams, D, mode, TV); el = toc;
+            else
+                kind = 'dyn';
+                fprintf('[%s] neural-network dynamics model: replaces the COM for this mode\n', mode);
+                tic; [X, ood, nfail] = simulate_nndyn(Wdyn, D); el = toc;
+            end
         catch ME
             % one failing scheduler must not throw away the others
             fprintf(2, '[%s] FAILED at %d degC: %s\n', mode, T, ME.message);
@@ -62,7 +76,7 @@ for T = temps
             end
             X = NaN(9, numel(D.t)); ood = NaN(1, numel(D.t)); nfail = NaN; el = NaN;
         end
-        R.(tg).(fld).X = X; R.(tg).(fld).ood = ood;
+        R.(tg).(fld).X = X; R.(tg).(fld).ood = ood; R.(tg).(fld).kind = kind;
         err = X - D.xref;
         met = zeros(numel(stateIdx), 2);
         for s = 1:numel(stateIdx)
@@ -102,9 +116,16 @@ end
 
 
 % =========================================================================
-function D = load_run(file, speedTs)
+function D = load_run(file, speedTs, root, tg)
 if isempty(which(file)) && ~isfile(file)
-    error('validate:noData', '%s not found (run export_simlog_runs first).', file);
+    % Fallback: every earlier validation run saved the reference data it used
+    % (R.<tg>.ref in Results/com_validation_*/com_validation.mat). Use the newest one.
+    D = ref_from_results(root, tg);
+    if isempty(D)
+        error('validate:noData', ['%s not found (run export_simlog_runs first), and no earlier ', ...
+              'Results/com_validation_*/com_validation.mat contains %s.'], file, tg);
+    end
+    return
 end
 M = load(file);
 names = cellstr(M.names);
@@ -203,6 +224,78 @@ if evalin('base', 'exist(''gamma_log'',''var'')')
 end
 end
 
+% =========================================================================
+function D = ref_from_results(root, tg)
+% Newest Results/com_validation_*/com_validation.mat that holds R.<tg>.ref, or [].
+D = [];
+d = dir(fullfile(root, 'Results', 'com_validation_*'));
+d = d([d.isdir]);
+[~, order] = sort([d.datenum], 'descend');
+for i = order
+    f = fullfile(d(i).folder, d(i).name, 'com_validation.mat');
+    if ~isfile(f), continue; end
+    try
+        S = load(f, 'R');
+    catch
+        continue
+    end
+    if isfield(S, 'R') && isfield(S.R, tg) && isfield(S.R.(tg), 'ref')
+        D = S.R.(tg).ref;
+        fprintf('   %s: export file missing, using the reference data saved in\n   %s\n', tg, f);
+        return
+    end
+end
+end
+
+% =========================================================================
+function W = load_dynamics_model(root, mode)
+% Returns the weights if nn_<mode>.mat is a dynamics model (has dx_scale), else [].
+W = [];
+if strcmpi(mode, 'interp'), return; end
+f = fullfile(root, ['nn_' mode '.mat']);
+if ~isfile(f), f = fullfile(root, 'Data', ['nn_' mode '.mat']); end
+if ~isfile(f), return; end
+S = load(f);
+if isfield(S, 'dx_scale'), W = S; end
+end
+
+% =========================================================================
+function [X, ood, nfail] = simulate_nndyn(W, D)
+% Open-loop simulation with the neural-network dynamics model (nn_dynamics_model.py):
+%   z(k+1)   = z(k) + dx_scale .* NN([z; u; d])     z = 8 states in degC / bar
+%   SOC(k+1) = SOC(k) - k_soc * I_bat(k)            Coulomb counting
+% Same initial state, inputs and disturbances as the COM. Output in COM units/order.
+N = numel(D.t);
+X = NaN(9, N); nfail = 0; ood = zeros(1, N);
+toNN   = @(x) [x([1 2 3 5]) - 273.15; x([6 7]) / 1e5; x([8 9]) - 273.15];
+fromNN = @(z, soc) [z(1:3) + 273.15; soc; z(4) + 273.15; z(5:6) * 1e5; z(7:8) + 273.15];
+U  = D.u;                                                   % rpm, kg/s, rpm, rpm, W, rpm
+Dd = [D.Tamb_C; D.speed / 3.6; D.batI; D.motQ; D.invQ; D.dcdcQ];   % speed km/h -> m/s
+
+% unit check: a signal far outside the training range usually means a unit mismatch
+names = [cellstr(W.inputs(:)); cellstr(W.dists(:))];
+zz = [(U - W.u_mean) ./ W.u_std; (Dd - W.d_mean) ./ W.d_std];
+for i = 1:numel(names)
+    if median(abs(zz(i, :))) > 5
+        warning('validate:units', ['NN input ''%s'': median %.1f std from the training data. ', ...
+                'Check its unit (expected %s).'], names{i}, median(abs(zz(i, :))), char(W.units));
+    end
+end
+
+x = D.xref(:, 1); X(:, 1) = x;
+z = toNN(x); soc = x(4);
+for k = 1:N - 1
+    in = [(z - W.x_mean) ./ W.x_std; (U(:, k) - W.u_mean) ./ W.u_std; (Dd(:, k) - W.d_mean) ./ W.d_std];
+    ood(k) = any(abs(in) > 6);                              % far outside the training data
+    z = z + W.dx_scale .* (W.W3 * tanh(W.W2 * tanh(W.W1 * in + W.b1) + W.b2) + W.b3);
+    soc = soc - W.k_soc * D.batI(k);
+    if ~all(isfinite(z))
+        warning('validate:diverged', 'NN dynamics model diverged at t = %d s', k); break;
+    end
+    X(:, k + 1) = fromNN(z, soc);
+end
+end
+
 function xp = pressure_guard(x)
 % same cold-start guard the MPC uses before property estimation
 xp = x;
@@ -240,7 +333,7 @@ for s = 1:4
     for m = 1:numel(modes)
         X = Rt.(matlab.lang.makeValidName(modes{m})).X;
         h(end+1) = plot(t, (X(i, :) + off) * sc, '-', 'Color', cols(1 + mod(m - 1, size(cols, 1)), :), ...
-                        'LineWidth', 2, 'DisplayName', sprintf('COM %s %d\\circC', lbl(modes{m}), T)); %#ok<AGROW>
+                        'LineWidth', 2, 'DisplayName', sprintf('%s %d\\circC', curve_label(Rt, modes{m}), T)); %#ok<AGROW>
     end
     h(end+1) = plot(t, (D.xref(i, :) + off) * sc, '--', 'Color', [0 0.25 0.45], 'LineWidth', 1.6, ...
                     'DisplayName', sprintf('Ref %d\\circC', T)); %#ok<AGROW>
@@ -265,7 +358,7 @@ for s = 1:3
     plot(t, D.xref(i, :) - 273.15, 'k--', 'LineWidth', 1.4, 'DisplayName', 'Ref');
     for m = 1:numel(modes)
         X = Rt.(matlab.lang.makeValidName(modes{m})).X;
-        plot(t, X(i, :) - 273.15, 'Color', C(m, :), 'LineWidth', 1.2, 'DisplayName', lbl(modes{m}));
+        plot(t, X(i, :) - 273.15, 'Color', C(m, :), 'LineWidth', 1.2, 'DisplayName', curve_label(Rt, modes{m}));
     end
     xlabel('Time (s)'); ylabel('\circC'); title(spec2{s, 2}); if s == 1, legend('Location', 'southeast'); end
 end
@@ -274,6 +367,16 @@ end
 
 function s = mode_label(m)
 if strcmpi(m, 'interp'), s = 'interp.'; else, s = ['NN-' m]; end
+end
+
+function s = curve_label(Rt, m)
+% legend text: physics COM with a scheduler, or the NN model that replaces the COM
+f = matlab.lang.makeValidName(m);
+if isfield(Rt.(f), 'kind') && strcmp(Rt.(f).kind, 'dyn')
+    s = ['NN model (' m ')'];
+else
+    s = ['COM ' mode_label(m)];
+end
 end
 
 function save_fig(fig, d, name)

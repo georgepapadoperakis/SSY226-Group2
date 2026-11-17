@@ -1,0 +1,37 @@
+Training runs: -30, -25, -20, -15, +0 degC
+Test runs (never seen in training): -12 degC
+Skipped -10 degC: no radiator fan signal (radFanrpm). This is an original-format file: re-run it with the same export as the new runs to include it
+Skipped -7 degC: no radiator fan signal (radFanrpm). This is an original-format file: re-run it with the same export as the new runs to include it
+Skipped -5 degC: no radiator fan signal (radFanrpm). This is an original-format file: re-run it with the same export as the new runs to include it
+SOC model: SOC(k+1) = SOC(k) - 1.004e-06 * I_bat   (capacity = 276.6 Ah)
+
+Training (rollout length grows so the model stays stable over long horizons) ...
+   rollout    1 s: final loss 0.00000   (4 s)
+   rollout   10 s: final loss 0.00003   (10 s)
+   rollout   30 s: final loss 0.00007   (25 s)
+   rollout  120 s: final loss 0.00015   (62 s)
+
+[1] Free run over the full 3600 s drive, from the initial state only (same test as the
+    paper's Table 1). RMSE / MAE; temperatures in degC, pressures in bar.
+           run          Motor       Inverter          DC-DC        Battery           p_in          p_out      Cabin int      Cabin air
+    train  -30     0.43/0.38       1.89/1.86       0.73/0.64       0.65/0.57       0.05/0.03       0.33/0.24       0.70/0.63       0.46/0.32    
+    train  -25     0.18/0.15       0.68/0.64       0.70/0.51       0.30/0.24       0.05/0.03       0.24/0.15       0.33/0.31       0.73/0.53    
+    train  -20     0.33/0.27       0.28/0.24       0.60/0.50       0.34/0.29       0.03/0.02       0.40/0.29       0.37/0.28       0.21/0.15    
+    train  -15     0.59/0.55       0.42/0.31       0.38/0.25       0.31/0.28       0.04/0.02       0.43/0.28       0.15/0.12       0.30/0.23    
+    train   +0     0.73/0.67       0.65/0.56       0.65/0.51       0.48/0.39       0.06/0.03       0.42/0.25       0.81/0.77       0.36/0.34    
+    TEST   -12     1.47/1.40       0.72/0.67       0.82/0.51       1.24/1.16       0.09/0.07       2.30/2.11       1.38/1.24       0.54/0.44    
+    For orientation only (different temperatures and controller settings): the paper's physics
+    model reaches RMSE ~1.0-1.5 degC (cabin air) and ~1.5-1.9 degC (battery) at -5/-7/-10 degC.
+
+[2] 30 s prediction horizon (what the MPC uses), restarted every 10 s from the true state.
+    RMSE of the network vs. 'nothing changes' (a model that is not better than that is useless).
+           run          Motor       Inverter          DC-DC        Battery           p_in          p_out      Cabin int      Cabin air
+    train  -30    0.072/0.376     0.078/0.372     0.198/0.469     0.038/0.358     0.013/0.012     0.139/0.171     0.015/0.080     0.128/0.341   
+    train  -25    0.051/0.349     0.044/0.340     0.180/0.444     0.034/0.331     0.015/0.016     0.130/0.565     0.024/0.106     0.098/0.458   
+    train  -20    0.051/0.322     0.044/0.313     0.192/0.422     0.034/0.302     0.015/0.022     0.121/1.116     0.027/0.118     0.101/0.507   
+    train  -15    0.050/0.296     0.046/0.286     0.178/0.386     0.029/0.274     0.023/0.034     0.150/1.501     0.019/0.114     0.092/0.485   
+    train   +0    0.045/0.264     0.044/0.256     0.202/0.371     0.029/0.242     0.044/0.062     0.243/1.950     0.017/0.068     0.039/0.320   
+    TEST   -12    0.056/0.287     0.060/0.277     0.221/0.404     0.037/0.264     0.025/0.039     0.904/1.570     0.019/0.105     0.123/0.453   
+    (each cell: network / nothing-changes)
+
+Saved model, weights and plots in nn_dynamics_output/  (total 63 s)
