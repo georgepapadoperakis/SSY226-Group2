@@ -9,11 +9,13 @@ Set up exactly like the NMPC uses the COM:
   - RK4 with Ts = 1 s.
 
 Main pieces
-  load_hfm_profile(T)      old file Data/tuning_data_<T>.mat -> HFM states in COM units + inputs + properties
-  make_windows(prof, H)    cut a profile into 30-s windows
+  load_all_profiles(...)   all old (Data/) and new (Results/) profiles in COM units, cached in _cache/
+  make_windows(prof, H)    cut a profile into H-s windows (start-up included, see START_RULE below)
   simulate(win, gamma)     COM rollout of all windows with given γ [W, 11]
   TableGamma               the interpolation table (prepParaVec) as a baseline
   GammaNet / features      the network that predicts γ at the window start
+  train_recipe(...)        the 3-step training that produced gammanet_partB.pt
+  evaluate / free_run      30-s horizon test (NMPC use) and full-hour free run (paper Fig. 2 / Table 1)
 """
 import math, os
 import numpy as np
@@ -22,7 +24,7 @@ import torch
 import torch.nn as nn
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 
-from com_torch import com_xdot, rk4_step, STATE_NAMES, INPUT_NAMES, CTRL_NAMES, EST_NAMES
+from com_torch import rk4_step, CTRL_NAMES, EST_NAMES
 from est_coolprop import estimate_params
 
 DT = torch.float64
@@ -30,64 +32,166 @@ C2K = 273.15
 
 # Loss/report scales per COM state: temperatures in K (1 K), SOC (0.001), pressures (1 bar)
 STATE_SCALE = torch.tensor([1, 1, 1, 1e-3, 1, 1e5, 1e5, 1, 1], dtype=DT)
-STATE_UNIT = ["K", "K", "K", "-", "K", "bar", "bar", "K", "K"]
 
 
 # ════════════════════════════════════════════════════════════════════ data
-def load_hfm_profile(T, data_dir, cache_dir=None):
-    """Old file tuning_data_<T>.mat (T = 7 means -7 °C) -> dict of torch tensors over time (N = 3601).
+SUPERHEAT_K = 2.0      # fixed superheat, as in the NMPC (MPCController_step_coreLQRNew.m)
+P_CRIT = 4.0593e6      # R134a critical pressure [Pa]. Windows where the HFM p_out exceeds it are dropped (only the
+                       # 0 °C start-up): above it CoolProp has no saturation properties.
+P_OUT_SCALE = 3e5      # loss scale for p_out [Pa] = 3 bar. The "balanced" scale (γ = 1 error) is ~25 bar for p_out,
+                       # which made the pressure almost weightless in training.
 
-    x    [N, 9]  HFM states in COM units (K, SOC, Pa)
-    u    [N, 6]  inputs (compNrpm, cabAirMfIn, motPumpNrpm, batPumpNrpm, heaterPwr, radFanrpm)
-    est  {name: [N]} properties from CoolProp at the HFM pressures (estimateParameters.m port)
-    ctrl {name: [N]} supervisor commands
-    Tamb ambient [°C]
+
+def supervisor_commands(envT_K, compN, pumpN, clntInvTout_K, clntBatTin_K):
+    """Port of the command logic in thermalLogicAndEstimation.m, run over a whole profile (arrays over time).
+
+    clntBatTin_K is the heater coolant outlet temperature (this reproduces the cached commands exactly).
+    Chiller EXV is always 0 here: it only opens in cooling mode, which never happens in cold weather.
     """
-    cache = os.path.join(cache_dir, f"partB_profile_{T}.pt") if cache_dir else None
-    if cache and os.path.exists(cache):
-        return torch.load(cache)
-    d = sio.loadmat(os.path.join(data_dir, f"tuning_data_{T}.mat"), squeeze_me=True, struct_as_record=False)
-    r = d["resampled"]
-    N = len(r.motTmeasC)
-    Tamb = float(d["envTemp"])
-    f = lambda a: np.asarray(a, float)
+    N = len(compN)
+    out = {n: np.zeros(N) for n in CTRL_NAMES}
+    setpoint = 1 if envT_K >= C2K + 21 else (2 if envT_K < C2K + 19 else 0)
+    mode, heater, serial = 0, 0, 1
+    for k in range(N):
+        if mode != 0 and setpoint == 0:
+            mode = 0
+        elif mode == 0 and setpoint != 0 and compN[k] >= 10:
+            mode = setpoint                                    # start once the compressor runs
+        if mode > 1:
+            serial = 1
+        else:                                                  # hysteresis 35 / 30 °C
+            Tc = max(envT_K, clntInvTout_K[k])
+            serial = 0 if Tc >= C2K + 35 else (1 if Tc <= C2K + 30 else serial)
+        if heater == 0:                                        # heater on: ambient < 5 °C, coolant < 15 °C, pump on
+            heater = int(envT_K < C2K + 5 and clntBatTin_K[k] < C2K + 15 and pumpN[k] > 0)
+        else:                                                  # off: ambient > 5 °C or coolant > 5 °C or pump off
+            heater = int(not (envT_K > C2K + 5 or clntBatTin_K[k] > C2K + 5 or pumpN[k] <= 0))
+        out["thermalMode"][k] = mode
+        out["cmdBlendAir"][k] = out["cmdExvHeatpump"][k] = float(mode == 2)
+        out["cmdExvEvap"][k] = float(mode == 1)
+        out["cmdParallelSerial"][k] = serial
+        out["cmdHeater"][k] = heater
+    return out
 
+
+def _profile(T, Tamb, x, u, heat, ctrl, superheat=None):
+    """Common last step: CoolProp properties at the HFM pressures, everything as float64 tensors."""
+    N = len(x)
+    sh = np.full(N, SUPERHEAT_K) if superheat is None else superheat
+    est = estimate_params(x[:, 5], x[:, 6], x[:, 8], sh, Tamb + C2K, *heat)
+    t = lambda a: torch.as_tensor(a, dtype=DT)
+    return dict(T=T, Tamb=Tamb, x=t(x), u=t(u),
+                est={k: t(v) for k, v in est.items() if k in EST_NAMES},
+                ctrl={k: t(v) for k, v in ctrl.items()})
+
+
+def load_old_profile(path):
+    """Old export Data/tuning_data_<T>.mat (-5, -7, -10 °C)."""
+    d = sio.loadmat(path, squeeze_me=True, struct_as_record=False)
+    r, Tamb = d["resampled"], float(d["envTemp"])
+    f = lambda a: np.asarray(a, float)
+    N = len(r.motTmeasC)
     x = np.stack([f(r.motTmeasC) + C2K, f(r.invTmeasC) + C2K, f(r.dcdcTmeasC) + C2K, f(r.batSocMeas),
                   f(r.batTmeasC) + C2K, f(r.compPinMpa) * 1e6, f(r.compPoutMpa) * 1e6,
                   f(r.cabIntTInK), f(r.cabAirTmeasC) + C2K], 1)
-    # battery-pump speed is not in the old files; both pumps ran at the same speed in these runs
+    # battery-pump and fan speed are not in the old files; both pumps ran at the same speed in these runs
     u = np.stack([f(r.compNrpm), f(r.cabAirMfIn), f(r.motPumpNrpm), f(r.motPumpNrpm),
                   f(r.heaterCmd) * 4000.0, np.zeros(N)], 1)
+    inv = f(r.clntInvTOut)
+    inv = inv + C2K if inv.max() < 200 else inv
+    ctrl = supervisor_commands(Tamb + C2K, f(r.compNrpm), f(r.motPumpNrpm), inv,
+                               f(r.heaterClntToutMeasC))          # stored in K despite the name
+    heat = (f(r.motQmeas), f(r.invQmeas), f(r.dcdcQmeas), f(r.batImeas), None)   # no speed in old files
+    return _profile(int(round(abs(Tamb))), Tamb, x, u, heat, ctrl)
 
-    est = estimate_params(x[:, 5], x[:, 6], x[:, 8], f(d["superHeat"]), Tamb + C2K,
-                          f(r.motQmeas), f(r.invQmeas), f(r.dcdcQmeas), f(r.batImeas))
-    co = [c if hasattr(c, "_fieldnames") else None for c in d["controlOutCell"]]
-    co = [c if c is not None else co[i - 1] for i, c in enumerate(co)]
-    ctrl = {n: np.array([float(getattr(c, n)) for c in co]) for n in CTRL_NAMES}
 
-    t = lambda a: torch.as_tensor(a, dtype=DT)
-    prof = dict(T=T, Tamb=Tamb, x=t(x), u=t(u),
-                est={k: t(v) for k, v in est.items() if k in EST_NAMES},
-                ctrl={k: t(v) for k, v in ctrl.items()})
-    if cache:
-        torch.save(prof, cache)
-    return prof
+def load_new_profile(path):
+    """New export Results/run_*/training_data_rule_T<T>.mat (from RunThermalComparison / export_training_data.m).
+
+    Uses the m*cp-weighted cabin interior (cabIntTw_C) and the real superheat (compInT_C) when the file has
+    them (exports made after 15 Nov); otherwise the plain wall average and the NMPC's fixed 2 K.
+    """
+    d = sio.loadmat(path, squeeze_me=True, struct_as_record=False)["trainingData"]
+    has = lambda n: n in d._fieldnames and np.isfinite(np.asarray(getattr(d, n), float)).all()
+    f = lambda a: np.asarray(a, float)
+    Tamb = float(d.T_amb_C)
+    cabInt = f(d.cabIntTw_C) if has("cabIntTw_C") else f(d.cabIntT_C)
+    x = np.stack([f(d.motT_C) + C2K, f(d.invT_C) + C2K, f(d.dcdcT_C) + C2K, f(d.batSoc), f(d.batT_C) + C2K,
+                  f(d.compPin_MPa) * 1e6, f(d.compPout_MPa) * 1e6, cabInt + C2K, f(d.cabAirT_C) + C2K], 1)
+    u = np.stack([f(d.compNrpm), f(d.cabAirMfIn_kgs), f(d.motPumpNrpm), f(d.batPumpNrpm),
+                  f(d.heaterQ_W), f(d.radFanrpm)], 1)
+    ctrl = supervisor_commands(Tamb + C2K, f(d.compNrpm), f(d.motPumpNrpm),
+                               f(d.clntInvTin_C) + C2K, f(d.heaterClntTout_C) + C2K)
+    superheat = None
+    if has("compInT_C"):
+        import CoolProp.CoolProp as CP
+        pin = np.clip(x[:, 5], 1e4, 4.0e6)
+        tsat = np.array([CP.PropsSI("T", "P", p, "Q", 1, "R134a") for p in pin])
+        superheat = np.clip(f(d.compInT_C) + C2K - tsat, 0.0, None)
+    heat = (f(d.motQgen_W), f(d.invQgen_W), f(d.dcdcQgen_W), f(d.batI_A), f(d.vehSpeed_kmh))   # speed in km/h
+    return _profile(int(round(abs(Tamb))), Tamb, x, u, heat, ctrl, superheat)
+
+
+def load_all_profiles(data_dir, results_dir, cache_dir, verbose=True):
+    """All profiles keyed by |Tamb| (12 means -12 °C): old files in data_dir, new exports in results_dir.
+
+    The CoolProp step takes ~15 s per profile, so each profile is cached in cache_dir. A cache file is rebuilt
+    automatically when its source .mat file is newer (e.g. after re-running a simulation).
+    """
+    import glob, time
+    os.makedirs(cache_dir, exist_ok=True)
+    sources = [(p, load_old_profile, "old") for p in sorted(glob.glob(os.path.join(data_dir, "tuning_data_*.mat")))]
+    sources += [(p, load_new_profile, "new")
+                for p in sorted(glob.glob(os.path.join(results_dir, "**", "training_data_*.mat"), recursive=True))]
+    profiles = {}
+    for path, loader, kind in sources:
+        tag = os.path.splitext(os.path.basename(path))[0].split("_")[-1].lstrip("T")
+        cache = os.path.join(cache_dir, f"partB_{kind}_{tag}.pt")
+        if os.path.exists(cache) and os.path.getmtime(cache) >= os.path.getmtime(path):
+            prof = torch.load(cache, weights_only=False)
+            how = "cache"
+        else:
+            t0 = time.time()
+            prof = loader(path)
+            torch.save(prof, cache)
+            how = f"built in {time.time() - t0:.0f} s"
+        if prof["T"] in profiles:
+            raise ValueError(f"two files for Tamb = {prof['Tamb']} °C (second: {path}); keep only one")
+        profiles[prof["T"]] = prof
+        if verbose:
+            print(f"  Tamb {prof['Tamb']:+4.0f} °C  {kind}  {os.path.relpath(path, os.path.dirname(results_dir))}  ({how})")
+    return dict(sorted(profiles.items()))
 
 
 HELD_EST = [n for n in EST_NAMES if n not in ("motQmeas", "invQmeas", "dcdcQmeas", "batImeas", "speed")]
 
 
-def make_windows(prof, H=30, stride=30):
-    """Cut a profile into windows [k0, k0+H]. Properties/commands held at k0; inputs and heat loads per step."""
+def make_windows(prof, H=30, stride=30, startup_stride=None, props_every_step=False):
+    """Cut a profile into H-s windows starting at k0 (from the HFM state at k0).
+
+    Start-up rule: windows start from t = 1 s. With startup_stride (e.g. 3) the first minute gets extra windows,
+    so the compressor start-up is well represented. Windows are dropped only if the HFM p_out exceeds R134a's
+    critical pressure or the properties are not finite.
+    Properties: held at k0 over the window (as the NMPC does), or taken from the data every second
+    (props_every_step, used for long windows). Inputs and heat loads always vary per step.
+    """
     N = prof["x"].shape[0]
-    k0 = torch.arange(1, N - H, stride)                           # skip t = 0 (all states equal ambient)
+    k0 = set(range(1, N - H, stride))
+    if startup_stride:
+        k0 |= set(range(1, 60, startup_stride))
+    k0 = torch.tensor(sorted(k0))
     idx = k0[:, None] + torch.arange(H)[None]                     # [W, H]
-    est_held = {n: prof["est"][n][k0][:, None].expand(-1, H) for n in HELD_EST}
-    est_step = {n: prof["est"][n][idx] for n in ("motQmeas", "invQmeas", "dcdcQmeas", "batImeas", "speed")}
-    return dict(T=prof["T"], Tamb=torch.full((len(k0),), prof["Tamb"], dtype=DT), k0=k0,
-                x0=prof["x"][k0], x_true=prof["x"][idx + 1], u=prof["u"][idx],
-                est={**est_held, **est_step},
-                ctrl={n: v[k0][:, None].expand(-1, H) for n, v in prof["ctrl"].items()})
+    if props_every_step:
+        est = {n: v[idx] for n, v in prof["est"].items()}
+    else:
+        est = {**{n: prof["est"][n][k0][:, None].expand(-1, H) for n in HELD_EST},
+               **{n: prof["est"][n][idx] for n in ("motQmeas", "invQmeas", "dcdcQmeas", "batImeas", "speed")}}
+    w = dict(T=prof["T"], Tamb=torch.full((len(k0),), prof["Tamb"], dtype=DT), k0=k0,
+             x0=prof["x"][k0], x_true=prof["x"][idx + 1], u=prof["u"][idx], est=est,
+             ctrl={n: v[k0][:, None].expand(-1, H) for n, v in prof["ctrl"].items()})
+    ok = (w["x_true"][:, :, 6].max(1).values < P_CRIT) & (w["x0"][:, 6] < P_CRIT) & torch.isfinite(w["x_true"]).all((1, 2))
+    ok &= torch.stack([torch.isfinite(v).all(1) for v in w["est"].values()], 1).all(1)
+    return subset(w, torch.nonzero(ok).squeeze(1))
 
 
 def cat_windows(ws):
@@ -119,9 +223,26 @@ def horizon_rmse(pred, true):
     return err.pow(2).mean((0, 1)).sqrt()
 
 
-def scaled_loss(pred, true):
-    """Mean squared error with every state in comparable units (1 K, 0.001 SOC, 1 bar)."""
-    return ((pred - true) / STATE_SCALE).pow(2).mean()
+def scaled_loss(pred, true, scale=None):
+    """Mean squared error per state, divided by `scale` (default: 1 K, 0.001 SOC, 1 bar)."""
+    scale = STATE_SCALE if scale is None else scale
+    return ((pred - true) / scale).pow(2).mean()
+
+
+@torch.no_grad()
+def nominal_scale(win):
+    """"Balanced" loss scale: each state's 30-s RMSE with γ = 1, so every state starts at loss 1 and no state
+    can be traded away for another (with plain units the battery got worse than nominal)."""
+    err = simulate(win, torch.ones(win["x0"].shape[0], 11, dtype=DT)) - win["x_true"]
+    return err.pow(2).mean((0, 1)).sqrt().clamp_min(1e-12)
+
+
+def loss_scale(win, cap_p_out=True):
+    """Balanced scale (computed on every 4th window), with p_out fixed at P_OUT_SCALE."""
+    sc = nominal_scale(subset(win, torch.arange(0, win["x0"].shape[0], 4)))
+    if cap_p_out:
+        sc[6] = P_OUT_SCALE
+    return sc
 
 
 # ════════════════════════════════════════════════════════════════════ interpolation table (baseline)
@@ -202,39 +323,103 @@ def subset(win, idx):
     return out
 
 
-class ConstantGamma(nn.Module):
-    """One γ vector for all operating points (baseline: what a single re-tuned parameter set can do)."""
-    def __init__(self):
-        super().__init__()
-        self.theta = nn.Parameter(torch.zeros(11, dtype=DT))
-    def forward(self, z):
-        g = torch.exp(self.theta.clamp(math.log(0.1), math.log(10)))
-        return g[None].expand(z.shape[0], -1)
+def train_gamma(model, wins, norm, iters, lr=3e-3, seed=0, plateau=True, log_every=10):
+    """End-to-end training: γ = model(features) -> COM rollout -> loss against the HFM states.
 
-
-def train_gamma(model, train_win, norm, iters=200, batch=512, lr=3e-3, log_every=20, seed=0):
-    """End-to-end training: γ = model(features) -> COM rollout -> loss against HFM states."""
+    wins: list of (windows, batch, loss_scale). Each iteration draws `batch` windows from every set and averages
+    the losses, so short and long windows can be trained together.
+    """
     import time
     torch.manual_seed(seed)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=15)
-    W = train_win["x0"].shape[0]
+    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=15) if plateau else None
     hist, t0 = [], time.time()
     for it in range(iters):
-        sub = subset(train_win, torch.randperm(W)[:batch])
-        g = model(norm(features(sub)))
-        loss = scaled_loss(simulate(sub, g), sub["x_true"])
+        loss = 0
+        for w, batch, sc in wins:
+            sub = subset(w, torch.randperm(w["x0"].shape[0])[:batch])
+            loss = loss + scaled_loss(simulate(sub, model(norm(features(sub)))), sub["x_true"], sc) / len(wins)
         opt.zero_grad(); loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step(); sched.step(loss.item())
+        opt.step()
+        if sched: sched.step(loss.item())
         hist.append(loss.item())
         if log_every and (it % log_every == 0 or it == iters - 1):
-            print(f"iter {it:4d}  loss {loss.item():8.4f}  lr {opt.param_groups[0]['lr']:.1e}  {time.time() - t0:5.0f}s",
+            print(f"  iter {it:4d}  loss {loss.item():8.4f}  lr {opt.param_groups[0]['lr']:.1e}  {time.time() - t0:5.0f}s",
                   flush=True)
     return hist
+
+
+def train_recipe(PB, train_T, log=print):
+    """The 3 steps that produced gammanet_partB.pt (about 80 min on a laptop CPU, mostly step 2).
+
+      1. 300 s windows from scratch, balanced loss                      (300 iterations)
+      2. fine-tune on 300 s + 1200 s windows, p_out weighted at 3 bar   ( 50 iterations)
+         -> the long windows fix the slow p_out drift in long free runs
+      3. fine-tune on 300 s windows including the compressor start-up   (100 iterations)
+    Returns the trained network, the input normalisation (mu, sd) and the loss history.
+    """
+    w300 = cat_windows([make_windows(PB[T], H=300, stride=20) for T in train_T])
+    z = features(w300); mu, sd = z.mean(0), z.std(0) + 1e-6
+    norm = lambda z: (z - mu) / sd
+    net, hist = GammaNet(), []
+    log("Step 1/3: 300 s windows")
+    hist += train_gamma(net, [(w300, 48, loss_scale(w300, cap_p_out=False))], norm, iters=300, lr=3e-3)
+    log("Step 2/3: 300 s + 1200 s windows, p_out at 3 bar")
+    w1200 = cat_windows([make_windows(PB[T], H=1200, stride=60, props_every_step=True) for T in train_T])
+    hist += train_gamma(net, [(w300, 16, loss_scale(w300)), (w1200, 4, loss_scale(w1200))], norm,
+                        iters=50, lr=1e-3, seed=1, plateau=False)
+    log("Step 3/3: 300 s windows including start-up")
+    w300s = cat_windows([make_windows(PB[T], H=300, stride=20, startup_stride=3) for T in train_T])
+    hist += train_gamma(net, [(w300s, 32, loss_scale(w300s))], norm, iters=100, lr=1e-3, seed=2, plateau=False)
+    return net, mu, sd, hist
 
 
 @torch.no_grad()
 def evaluate(win, gammas):
     """{name: γ [W, 11]} -> {name: RMSE per state [9]} on the given windows."""
     return {name: horizon_rmse(simulate(win, g), win["x_true"]) for name, g in gammas.items()}
+
+
+@torch.no_grad()
+def free_run(profiles, gamma_fns, temps):
+    """Full-hour free run of the COM from the HFM state at t = 0, no resets (paper Fig. 2 / Table 1).
+
+    Properties are re-evaluated with CoolProp every second from the COM's OWN state (as in the paper's validation;
+    with the HFM's pressures the high-side pressure never builds up). γ is recomputed every second.
+    gamma_fns: {name: f(x [B, 9], k, ctx) -> γ [B, 11]}. Returns {name: states [len(temps), N, 9]}.
+    All methods and temperatures run as one batch, so CoolProp dominates the run time (~3 min per 10 runs).
+    """
+    names = list(gamma_fns); cases = [(n, T) for n in names for T in temps]; B = len(cases)
+    X = torch.stack([profiles[T]["x"] for _, T in cases]); U = torch.stack([profiles[T]["u"] for _, T in cases])
+    N = X.shape[1]
+    step_names = ("motQmeas", "invQmeas", "dcdcQmeas", "batImeas", "speed")
+    HEAT = {n: torch.stack([profiles[T]["est"][n] for _, T in cases]) for n in step_names}
+    CTRL = {n: torch.stack([profiles[T]["ctrl"][n] for _, T in cases]) for n in profiles[temps[0]]["ctrl"]}
+    TA = torch.tensor([profiles[T]["Tamb"] for _, T in cases], dtype=DT)
+    ctx = dict(Tamb=TA, U=U, HEAT=HEAT, N=N)
+    rows = {n: [i for i, (m, _) in enumerate(cases) if m == n] for n in names}
+    x = X[:, 0].clone(); traj = [x]
+    for k in range(N - 1):
+        xn = x.numpy()
+        e = estimate_params(xn[:, 5], xn[:, 6], xn[:, 8], np.full(B, SUPERHEAT_K), TA.numpy() + C2K,
+                            *(HEAT[n][:, k].numpy() for n in step_names))
+        est = {n: torch.as_tensor(v, dtype=DT) for n, v in e.items() if n in EST_NAMES}
+        g = torch.empty(B, 11, dtype=DT)
+        for n, r in rows.items():
+            sub = dict(Tamb=TA[r], U=U[r], HEAT={m: v[r] for m, v in HEAT.items()}, N=N)
+            g[r] = gamma_fns[n](x[r], k, sub)
+        x = rk4_step(x, U[:, k], est, {n: v[:, k] for n, v in CTRL.items()}, g)
+        x = torch.cat([x[:, :5], x[:, 5:7].clamp(1e4, 6e6), x[:, 7:]], 1)
+        traj.append(x)
+    P = torch.stack(traj, 1)
+    return {n: P[r] for n, r in rows.items()}
+
+
+def network_gamma_fn(net, norm, H=30):
+    """γ from the network for free_run: features from the current (predicted) state and the next H s of inputs."""
+    def f(x, k, ctx):
+        kk = torch.clamp(torch.arange(k, k + H), max=ctx["N"] - 1)
+        return net(norm(features(dict(Tamb=ctx["Tamb"], x0=x, u=ctx["U"][:, kk],
+                                      est={n: v[:, kk] for n, v in ctx["HEAT"].items()}))))
+    return f
