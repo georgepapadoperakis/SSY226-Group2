@@ -1,0 +1,601 @@
+{
+  "ambient_C": -10,
+  "is_independent_test": false,
+  "case_was_a_training_temperature": true,
+  "startup_excluded_before_s": 30.0,
+  "continuous": {
+    "coverage": {
+      "all_available_common_times": {
+        "points": 3570,
+        "fraction_of_prediction_grid": 1.0,
+        "first_time_s": 31.0,
+        "last_time_s": 3600.0
+      }
+    },
+    "statuses": {
+      "prior": {
+        "completed": true,
+        "stop_reason": null,
+        "last_recorded_s": 3600.0,
+        "last_recorded_pressure_bar": [
+          2.345119796960494,
+          34.18347486344659
+        ]
+      },
+      "mlp": {
+        "completed": true,
+        "stop_reason": null,
+        "last_recorded_s": 3600.0,
+        "last_recorded_pressure_bar": [
+          5.443374420041735,
+          38.114285215468215
+        ]
+      }
+    },
+    "metrics_file": "T10_continuous_metrics.csv",
+    "rmse_rows": [
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 1.2224316502582449,
+        "MAE": 1.0508221406989144,
+        "max_abs_error": 2.262096699185861
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 1.1113276538391192,
+        "MAE": 0.9517166243005518,
+        "max_abs_error": 2.1693426644556553
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 1.2092281174945037,
+        "MAE": 1.0150215839736094,
+        "max_abs_error": 2.4739462543162745
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 3570,
+        "RMSE": 0.14861939026194984,
+        "MAE": 0.11196411542526433,
+        "max_abs_error": 0.27442699643530943
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 1.3602920223740826,
+        "MAE": 1.1907121883233465,
+        "max_abs_error": 2.210572419924347
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 0.1684984918282354,
+        "MAE": 0.15834149830237368,
+        "max_abs_error": 0.3622354293037753
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 1.431639285458402,
+        "MAE": 1.2438250886707651,
+        "max_abs_error": 2.362702635388878
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.8472016107642673,
+        "MAE": 0.5851817386629408,
+        "max_abs_error": 2.8651650783825744
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 4.927874867113889,
+        "MAE": 4.717853651528583,
+        "max_abs_error": 7.136948348447675
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 5.267570854410757,
+        "MAE": 5.07304987807127,
+        "max_abs_error": 7.0983276702565945
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 5.278895682462973,
+        "MAE": 5.034546692086832,
+        "max_abs_error": 7.534145844354953
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 3570,
+        "RMSE": 0.166697373093854,
+        "MAE": 0.12884441433366645,
+        "max_abs_error": 0.2968350524689498
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 5.3259165014054295,
+        "MAE": 5.181469495791885,
+        "max_abs_error": 6.469505616080312
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 1.7437288784706895,
+        "MAE": 1.4240836041986982,
+        "max_abs_error": 2.9463515975632477
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 3.021460260749125,
+        "MAE": 2.5812000263359427,
+        "max_abs_error": 4.361661024626386
+      },
+      {
+        "protocol": "continuous",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 1.6056665912938075,
+        "MAE": 1.5128006741849789,
+        "max_abs_error": 2.1120237827531696
+      }
+    ]
+  },
+  "reset": {
+    "coverage": {
+      "all_available_common_times": {
+        "points": 3570,
+        "fraction_of_prediction_grid": 1.0,
+        "first_time_s": 31.0,
+        "last_time_s": 3600.0
+      },
+      "validation_times_only": {
+        "points": 1110,
+        "fraction_of_prediction_grid": 0.31092436974789917,
+        "first_time_s": 931.0,
+        "last_time_s": 3600.0
+      }
+    },
+    "statuses": {
+      "prior": {
+        "completed": true,
+        "protocol": "state reset at each window start"
+      },
+      "mlp": {
+        "completed": true,
+        "protocol": "state reset at each window start"
+      }
+    },
+    "metrics_file": "T10_reset_metrics.csv",
+    "rmse_rows": [
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.17912176177423073,
+        "MAE": 0.11184871305586012,
+        "max_abs_error": 1.254957464448239
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.2707266244864744,
+        "MAE": 0.1801394385635564,
+        "max_abs_error": 1.0288069288256452
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.4515710860758837,
+        "MAE": 0.3491081947039374,
+        "max_abs_error": 1.4088838193558786
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 3570,
+        "RMSE": 0.0018001266169856932,
+        "MAE": 0.0013603541848609159,
+        "max_abs_error": 0.0049056640821163455
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.07431156071732668,
+        "MAE": 0.0426131460020097,
+        "max_abs_error": 0.4539865007160415
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 0.02294382226623167,
+        "MAE": 0.01483179175057012,
+        "max_abs_error": 0.1620469877652384
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 4.371913672791445,
+        "MAE": 2.682452749531448,
+        "max_abs_error": 15.269514686280065
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "prior",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.2337970066533684,
+        "MAE": 0.14373723991855117,
+        "max_abs_error": 1.516041191380225
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.1432729929779938,
+        "MAE": 0.0909782242741501,
+        "max_abs_error": 0.644323134997137
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.19100715077621883,
+        "MAE": 0.1212990786977966,
+        "max_abs_error": 0.8207664176152889
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.4242359273920027,
+        "MAE": 0.3266465348671584,
+        "max_abs_error": 1.3361562092362647
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 3570,
+        "RMSE": 0.0018003415912330708,
+        "MAE": 0.001360722386832952,
+        "max_abs_error": 0.00490373707783931
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.10530154385652901,
+        "MAE": 0.05385219275787994,
+        "max_abs_error": 0.4942983750763119
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 0.02448929680056111,
+        "MAE": 0.017400130257552396,
+        "max_abs_error": 0.15973279617813851
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 3570,
+        "RMSE": 1.3779257158913536,
+        "MAE": 0.9387764213566744,
+        "max_abs_error": 4.642293365915435
+      },
+      {
+        "protocol": "reset",
+        "scope": "all_available_common_times",
+        "model": "mlp",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 3570,
+        "RMSE": 0.20009857338362727,
+        "MAE": 0.12411332977932321,
+        "max_abs_error": 1.2506687854191796
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.1885567906055966,
+        "MAE": 0.1440198099759998,
+        "max_abs_error": 0.6887233000494462
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.34061676002706137,
+        "MAE": 0.24712722915604873,
+        "max_abs_error": 1.0288069288256452
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.4327649685536018,
+        "MAE": 0.38807826072301027,
+        "max_abs_error": 1.0465276103853967
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 1110,
+        "RMSE": 0.0016919531131723434,
+        "MAE": 0.001131459091681467,
+        "max_abs_error": 0.0049056640821163455
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.04662295048133535,
+        "MAE": 0.03178879341564531,
+        "max_abs_error": 0.20290813944990305
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 1110,
+        "RMSE": 0.02097874186092373,
+        "MAE": 0.014556813224325537,
+        "max_abs_error": 0.09033194857803295
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 1110,
+        "RMSE": 2.799544927898646,
+        "MAE": 1.1830581136330418,
+        "max_abs_error": 10.692708040439829
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "prior",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.17554759472850995,
+        "MAE": 0.12074814601366791,
+        "max_abs_error": 0.6352942511513788
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "motT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.1329208187052604,
+        "MAE": 0.09680180115614535,
+        "max_abs_error": 0.595899575211547
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "invT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.16334903969802556,
+        "MAE": 0.11607114500742849,
+        "max_abs_error": 0.6344780460121342
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "dcdcT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.39919326527809557,
+        "MAE": 0.35675803541948675,
+        "max_abs_error": 0.9562385891010763
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "batSoc",
+        "unit": "percentage points",
+        "samples": 1110,
+        "RMSE": 0.0016920122067168972,
+        "MAE": 0.001131653336015718,
+        "max_abs_error": 0.00490373707783931
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "batT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.04387613659628533,
+        "MAE": 0.024217437304887755,
+        "max_abs_error": 0.20407445164329374
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "compPin_Pa",
+        "unit": "bar",
+        "samples": 1110,
+        "RMSE": 0.02367386732264227,
+        "MAE": 0.01834233808125519,
+        "max_abs_error": 0.08911295189659141
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "compPout_Pa",
+        "unit": "bar",
+        "samples": 1110,
+        "RMSE": 0.8913170677563454,
+        "MAE": 0.49564745789677817,
+        "max_abs_error": 3.926515587087504
+      },
+      {
+        "protocol": "reset",
+        "scope": "validation_times_only",
+        "model": "mlp",
+        "state": "cabAirT_K",
+        "unit": "degC",
+        "samples": 1110,
+        "RMSE": 0.15644454991815684,
+        "MAE": 0.10366898162533596,
+        "max_abs_error": 0.5515973869705704
+      }
+    ]
+  },
+  "continuous_gamma_property_update_s": 1,
+  "training_horizon_s": 30,
+  "recorded_actuators_and_external_disturbances_used": true,
+  "latent_interior_has_no_measurement_target": true,
+  "matlab_parity_verified": false
+}

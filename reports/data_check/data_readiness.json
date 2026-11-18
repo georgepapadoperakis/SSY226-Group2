@@ -1,0 +1,77 @@
+{
+  "training_ready": false,
+  "sample_time_s": 1.0,
+  "horizon_from_init_nmpc": 30,
+  "architecture": [
+    11,
+    32,
+    32,
+    11
+  ],
+  "state_order": [
+    "motT_K",
+    "invT_K",
+    "dcdcT_K",
+    "batSoc",
+    "batT_K",
+    "compPin_Pa",
+    "compPout_Pa",
+    "cabIntT_K",
+    "cabAirT_K"
+  ],
+  "missing_states": [
+    "batSoc",
+    "compPin_Pa",
+    "compPout_Pa",
+    "cabIntT_K"
+  ],
+  "missing_inputs": [
+    "Ib_A",
+    "compNrpm",
+    "cabAirMfIn",
+    "motPumpNrpm",
+    "batPumpNrpm",
+    "heaterPwr",
+    "radFanrpm"
+  ],
+  "further_requirements": [
+    "63 ordered fixed est/ctrl parameters or a verified construction of them",
+    "reviewed gamma bounds and nominal values; interpolation baseline",
+    "verify the battery-average state against the actual COM measurement mapping"
+  ],
+  "runs": [
+    {
+      "file": "rule_T5_numeric.mat",
+      "T_amb_C": -5,
+      "signals": 19,
+      "native_samples": 14964,
+      "all_finite": true,
+      "same_time_within_run": true,
+      "grid_samples": 3601,
+      "available_state_count": 5,
+      "output": "PARTIAL_T5.npz"
+    },
+    {
+      "file": "rule_T7_numeric.mat",
+      "T_amb_C": -7,
+      "signals": 19,
+      "native_samples": 14956,
+      "all_finite": true,
+      "same_time_within_run": true,
+      "grid_samples": 3601,
+      "available_state_count": 5,
+      "output": "PARTIAL_T7.npz"
+    },
+    {
+      "file": "rule_T10_numeric.mat",
+      "T_amb_C": -10,
+      "signals": 19,
+      "native_samples": 14770,
+      "all_finite": true,
+      "same_time_within_run": true,
+      "grid_samples": 3601,
+      "available_state_count": 5,
+      "output": "PARTIAL_T10.npz"
+    }
+  ]
+}

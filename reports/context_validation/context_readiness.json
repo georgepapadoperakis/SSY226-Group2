@@ -1,0 +1,196 @@
+{
+  "training_ready": false,
+  "reason": "cabIntT_K is not a separately verified reference; saturation-property domain exceptions exist",
+  "r134a_critical_pressure_Pa": 4059276.3737910665,
+  "runs": [
+    {
+      "file": "context_rule_T5.mat",
+      "ambient_C": -5.0,
+      "source_run": "run_2026_11_11_10_22_21",
+      "signals": 55,
+      "grid_samples": 3601,
+      "sample_time_s": 1.0,
+      "time_limits_s": [
+        0.0,
+        3600.0
+      ],
+      "native_samples": 14964,
+      "observed_state_columns": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8
+      ],
+      "unresolved_state": "cabIntT_K",
+      "training_ready": false,
+      "state_mapping_model": "uploaded SLX; historical run model identity not verified",
+      "pressure_A_bar_range": [
+        1.431826288181401,
+        2.8627341048492143
+      ],
+      "pressure_B_bar_range_native": [
+        2.5,
+        43.80839877333979
+      ],
+      "native_supercritical_samples": 175,
+      "native_supercritical_sample_intervals_s": [
+        [
+          13.0,
+          20.224751135558527
+        ]
+      ],
+      "supercritical_grid_points": 8,
+      "supercritical_grid_intervals_s": [
+        [
+          13.0,
+          20.0
+        ]
+      ],
+      "saturation_derivative_invalid_grid_intervals_s": [
+        [
+          13.0,
+          20.0
+        ]
+      ],
+      "current_demand_plus_cell_max_abs_A": 0.0,
+      "command_minus_physical_current_max_abs_A": 0.0,
+      "SOC_start_end": [
+        1.0,
+        0.8701511698091908
+      ],
+      "max_pack_SOC_spread": 1.605947277272257e-05,
+      "max_pack_temperature_spread_K": 1.5108007266588288,
+      "blower_sensor_max_abs_kg_s": 0.0,
+      "blower_mdot_A_range_kg_s": [
+        0.0,
+        0.13027022330998558
+      ],
+      "interpolation": "linear diagnostic interpolation; no extrapolation"
+    },
+    {
+      "file": "context_rule_T7.mat",
+      "ambient_C": -7.0,
+      "source_run": "run_2026_11_11_10_22_21",
+      "signals": 55,
+      "grid_samples": 3601,
+      "sample_time_s": 1.0,
+      "time_limits_s": [
+        0.0,
+        3600.0
+      ],
+      "native_samples": 14956,
+      "observed_state_columns": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8
+      ],
+      "unresolved_state": "cabIntT_K",
+      "training_ready": false,
+      "state_mapping_model": "uploaded SLX; historical run model identity not verified",
+      "pressure_A_bar_range": [
+        1.318173225277241,
+        2.7258164962883504
+      ],
+      "pressure_B_bar_range_native": [
+        2.2,
+        41.21451877294489
+      ],
+      "native_supercritical_samples": 71,
+      "native_supercritical_sample_intervals_s": [
+        [
+          17.104722216391345,
+          19.60282941318696
+        ]
+      ],
+      "supercritical_grid_points": 2,
+      "supercritical_grid_intervals_s": [
+        [
+          18.0,
+          19.0
+        ]
+      ],
+      "saturation_derivative_invalid_grid_intervals_s": [
+        [
+          18.0,
+          19.0
+        ]
+      ],
+      "current_demand_plus_cell_max_abs_A": 0.0,
+      "command_minus_physical_current_max_abs_A": 0.0,
+      "SOC_start_end": [
+        1.0,
+        0.8701444381934393
+      ],
+      "max_pack_SOC_spread": 1.861241585332518e-05,
+      "max_pack_temperature_spread_K": 1.541573880724684,
+      "blower_sensor_max_abs_kg_s": 0.0,
+      "blower_mdot_A_range_kg_s": [
+        0.0,
+        0.1336408529471863
+      ],
+      "interpolation": "linear diagnostic interpolation; no extrapolation"
+    },
+    {
+      "file": "context_rule_T10.mat",
+      "ambient_C": -10.0,
+      "source_run": "run_2026_11_11_10_22_21",
+      "signals": 55,
+      "grid_samples": 3601,
+      "sample_time_s": 1.0,
+      "time_limits_s": [
+        0.0,
+        3600.0
+      ],
+      "native_samples": 14770,
+      "observed_state_columns": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8
+      ],
+      "unresolved_state": "cabIntT_K",
+      "training_ready": false,
+      "state_mapping_model": "uploaded SLX; historical run model identity not verified",
+      "pressure_A_bar_range": [
+        1.2178252909293628,
+        2.4970228224784874
+      ],
+      "pressure_B_bar_range_native": [
+        2.0,
+        38.20850231789367
+      ],
+      "native_supercritical_samples": 0,
+      "native_supercritical_sample_intervals_s": [],
+      "supercritical_grid_points": 0,
+      "supercritical_grid_intervals_s": [],
+      "saturation_derivative_invalid_grid_intervals_s": [],
+      "current_demand_plus_cell_max_abs_A": 0.0,
+      "command_minus_physical_current_max_abs_A": 0.0,
+      "SOC_start_end": [
+        1.0,
+        0.8701391588914773
+      ],
+      "max_pack_SOC_spread": 2.2197477531959997e-05,
+      "max_pack_temperature_spread_K": 1.576452254793196,
+      "blower_sensor_max_abs_kg_s": 0.0,
+      "blower_mdot_A_range_kg_s": [
+        0.0,
+        0.1373958645873107
+      ],
+      "interpolation": "linear diagnostic interpolation; no extrapolation"
+    }
+  ]
+}

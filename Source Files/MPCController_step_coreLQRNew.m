@@ -428,7 +428,7 @@ if isempty(built)
     opts.ipopt.acceptable_obj_change_tol  = 1e-4;
 
     opts.ipopt.hessian_approximation = 'exact';
-    opts.ipopt.linear_solver         = 'ma97';
+    opts.ipopt.linear_solver         = 'mumps';
 
     opts.ipopt.mu_strategy = 'adaptive';
     opts.ipopt.mu_oracle   = 'quality-function';

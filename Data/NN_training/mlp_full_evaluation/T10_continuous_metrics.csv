@@ -1,0 +1,17 @@
+﻿protocol,scope,model,state,unit,samples,RMSE,MAE,max_abs_error
+continuous,all_available_common_times,prior,motT_K,degC,3570,1.2224316502582449,1.0508221406989144,2.262096699185861
+continuous,all_available_common_times,prior,invT_K,degC,3570,1.1113276538391192,0.9517166243005518,2.1693426644556553
+continuous,all_available_common_times,prior,dcdcT_K,degC,3570,1.2092281174945037,1.0150215839736094,2.4739462543162745
+continuous,all_available_common_times,prior,batSoc,percentage points,3570,0.14861939026194984,0.11196411542526433,0.27442699643530943
+continuous,all_available_common_times,prior,batT_K,degC,3570,1.3602920223740826,1.1907121883233465,2.210572419924347
+continuous,all_available_common_times,prior,compPin_Pa,bar,3570,0.1684984918282354,0.15834149830237368,0.3622354293037753
+continuous,all_available_common_times,prior,compPout_Pa,bar,3570,1.431639285458402,1.2438250886707651,2.362702635388878
+continuous,all_available_common_times,prior,cabAirT_K,degC,3570,0.8472016107642673,0.5851817386629408,2.8651650783825744
+continuous,all_available_common_times,mlp,motT_K,degC,3570,4.927874867113889,4.717853651528583,7.136948348447675
+continuous,all_available_common_times,mlp,invT_K,degC,3570,5.267570854410757,5.07304987807127,7.0983276702565945
+continuous,all_available_common_times,mlp,dcdcT_K,degC,3570,5.278895682462973,5.034546692086832,7.534145844354953
+continuous,all_available_common_times,mlp,batSoc,percentage points,3570,0.166697373093854,0.12884441433366645,0.2968350524689498
+continuous,all_available_common_times,mlp,batT_K,degC,3570,5.3259165014054295,5.181469495791885,6.469505616080312
+continuous,all_available_common_times,mlp,compPin_Pa,bar,3570,1.7437288784706895,1.4240836041986982,2.9463515975632477
+continuous,all_available_common_times,mlp,compPout_Pa,bar,3570,3.021460260749125,2.5812000263359427,4.361661024626386
+continuous,all_available_common_times,mlp,cabAirT_K,degC,3570,1.6056665912938075,1.5128006741849789,2.1120237827531696

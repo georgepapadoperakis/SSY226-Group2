@@ -1,2 +1,8 @@
 Results/
 Results/
+# Local Python environment
+.venv/
+
+# Generated Python cache
+__pycache__/
+*.py[cod]

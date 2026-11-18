@@ -1,0 +1,36 @@
+{
+  "status": "PRELIMINARY_EXPERIMENT",
+  "independent_observed_states": 8,
+  "latent_state": "cabIntT_K",
+  "latent_target_weight": 0,
+  "latent_method": "causal COM cabin-interior predictor, initialized at ambient, prior gamma1",
+  "thermo_python_matlab_parity_verified": false,
+  "interpolant_python_matlab_parity_verified": false,
+  "actuator_assumption": "sample-hold physical speed/flow/heater; logical cold-mode supervisor",
+  "forecasts": "recorded external disturbances; not an online forecasting performance claim",
+  "table_sha256": "d9f8dca0a023538b80bcd2c67d99728b1a8054100107a12f63d7013cc73b72b9",
+  "excluded_startup_before_s": 30.0,
+  "runs": [
+    {
+      "case": 5,
+      "samples": 3601,
+      "eligible_start_points": 3571,
+      "initial_interior_K": 268.15,
+      "final_estimated_interior_K": 281.15109597248977
+    },
+    {
+      "case": 7,
+      "samples": 3601,
+      "eligible_start_points": 3571,
+      "initial_interior_K": 266.15,
+      "final_estimated_interior_K": 280.15116223878755
+    },
+    {
+      "case": 10,
+      "samples": 3601,
+      "eligible_start_points": 3571,
+      "initial_interior_K": 263.15,
+      "final_estimated_interior_K": 278.64736067798196
+    }
+  ]
+}
