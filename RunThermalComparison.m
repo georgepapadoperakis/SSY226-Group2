@@ -1,4 +1,24 @@
 function RunThermalComparison(varargin)
+%RUNTHERMALCOMPARISON  Run the Simscape model with the rule-based controller and/or the NMPC.
+%
+%   RunThermalComparison                                   interactive menu (controller, temperatures, cycles)
+%   RunThermalComparison(controller, temps)                original drive cycle (WLTCHW), as before
+%   RunThermalComparison(controller, temps, cycles)
+%   RunThermalComparison(controller, temps, cycles, saveSimlog)
+%
+%   controller  'rule', 'nmpc' or 'both'
+%   temps       e.g. -10, [-10 -7], or 'all' (0, -5, -7, -10, -12, -15, -20, -25, -30)
+%   cycles      drive-cycle handle(s) from drive_cycle_list: 'WLTCHW' (original), 'NEDC', 'UDDS', 'US06',
+%               several as {'NEDC','UDDS'}, or 'all'
+%   saveSimlog  true (default) saves the ~375 MB simlog per run; false keeps only the 1-Hz training
+%               data, plots and energy results
+%
+%   Examples
+%     RunThermalComparison('rule', 'all', 'all', false)     every temperature on every cycle
+%     RunThermalComparison('rule', [-10 -7], 'UDDS')
+%
+%   Output per cycle: Results/run_<time>_<handle>/ with training_data_<ctrl>_T<|T|>_<handle>.mat.
+%   The drive cycle is switched in memory; the .slx file is never modified.
 repoRoot = fileparts(mfilename('fullpath'));
 addpath(repoRoot);
 addpath(fullfile(repoRoot, 'Data'));
@@ -47,14 +67,18 @@ end
     end
 
     %% ── Parse inputs ─────────────────────────────────────────────────────
+    cycles = {'WLTCHW'};
+    saveSimlog = true;
     if nargin == 0
-        [ctrl_sel, temp_sel] = interactive_menu();
-    elseif nargin == 2
+        [ctrl_sel, temp_sel, cycles] = interactive_menu();
+    elseif nargin >= 2 && nargin <= 4
         ctrl_sel = varargin{1};
         temp_sel = varargin{2};
+        if nargin >= 3 && ~isempty(varargin{3}), cycles = parse_cycles(varargin{3}); end
+        if nargin >= 4, saveSimlog = logical(varargin{4}); end
     else
         error('RunThermalComparison:badInput', ...
-              'Usage: RunThermalComparisonV2() or RunThermalComparisonV2(controller, temps)');
+              'Usage: RunThermalComparison() or RunThermalComparison(controller, temps [, cycles [, saveSimlog]])');
     end
 
     ctrl_sel = lower(string(ctrl_sel));
@@ -68,10 +92,12 @@ end
               'Controller must be ''rule'', ''nmpc'', or ''both''.');
     end
 
-    temps = temp_sel(:)';   % row vector
-
     %% ── Validate temperatures ────────────────────────────────────────────
     valid_temps = [0, -5, -7, -10, -12, -15, -20, -25, -30];
+    if (ischar(temp_sel) || isstring(temp_sel)) && strcmpi(temp_sel, 'all')
+        temp_sel = valid_temps;
+    end
+    temps = temp_sel(:)';   % row vector
     for T = temps
         if ~ismember(T, valid_temps)
             error('RunThermalComparison:badTemp', ...
@@ -79,21 +105,45 @@ end
         end
     end
 
-   %% ── Output folder with timestamp ────────────────────────────────────────
-timestamp = datestr(now, 'yyyy_mm_dd_HH_MM_SS');
-outdir = fullfile(repoRoot, 'Results', ['run_' timestamp]);   % anchored to repo, not pwd
-
-if ~exist(outdir, 'dir')
-    mkdir(outdir);
-end
-
-fprintf('[Output] All files will be saved to:\n  %s\n', outdir);
-
     %% ── Load model if not loaded ─────────────────────────────────────────
     if ~bdIsLoaded(MODEL)
         fprintf('[RunThermalComparison] Loading model: %s\n', MODEL);
         load_system(MODEL);
     end
+
+    %% ── One output folder per drive cycle ───────────────────────────────
+    fprintf('\n[Plan] %d cycle(s) x %d temperature(s) x %d controller(s) = %d run(s)\n', ...
+            numel(cycles), numel(temps), numel(controllers), numel(cycles) * numel(temps) * numel(controllers));
+    fprintf('[Plan] cycles: %s | temperatures: %s\n', strjoin(cycles, ', '), mat2str(temps));
+    for i = 1:numel(cycles)
+        run_cycle(MODEL, repoRoot, controllers, temps, cycles{i}, saveSimlog, i, numel(cycles));
+    end
+end
+
+
+%% ═════════════════════════════════════════════════════════════════════════
+%% All runs for one drive cycle (one Results folder)
+%% ═════════════════════════════════════════════════════════════════════════
+function run_cycle(MODEL, repoRoot, controllers, temps, cycle, saveSimlog, i_cycle, n_cycles)
+
+    fprintf('\n####################################################\n');
+    fprintf('  Drive cycle %d/%d: %s\n', i_cycle, n_cycles, cycle);
+    fprintf('####################################################\n');
+
+    %% ── Output folder with timestamp ────────────────────────────────────
+    timestamp = datestr(now, 'yyyy_mm_dd_HH_MM_SS');
+    outdir = fullfile(repoRoot, 'Results', ['run_' timestamp '_' cycle]);   % anchored to repo, not pwd
+    if ~exist(outdir, 'dir')
+        mkdir(outdir);
+    end
+    fprintf('[Output] All files will be saved to:\n  %s\n', outdir);
+
+    %% ── Drive cycle: point the Scenario block at the chosen cycle ─────────
+    % Changes are made in memory only (the .slx is never saved) and are undone when this
+    % function ends, also after an error.
+    cyc = select_drive_cycle(MODEL, cycle, repoRoot);
+    restoreCycle = onCleanup(@() cyc.restore()); %#ok<NASGU>
+    assignin('base', 'ACTIVE_DRIVE_CYCLE', cycle);   % for later use (e.g. the NMPC speed preview)
 
     %% ── Run all combinations ─────────────────────────────────────────────
     results = struct();
@@ -113,7 +163,7 @@ fprintf('[Output] All files will be saved to:\n  %s\n', outdir);
             fprintf('════════════════════════════════════════════════════\n');
 
             % 1) Set scenario parameters
-            set_cold_weather_scenario(MODEL, T);
+            set_cold_weather_scenario(MODEL, T, cycle);
 
             % 2) Switch controller
             switch_controller(MODEL, ctrl);
@@ -173,17 +223,21 @@ fprintf('[Output] All files will be saved to:\n  %s\n', outdir);
             stats.sim_time_s = t_sim_elapsed;
             stats.model_name = MODEL;
             simlog_file = fullfile(outdir, sprintf('simlog_%s_T%d.mat', ctrl, abs(T)));
-            try
-                save(simlog_file, 'simlog', '-v7.3');   % 
-                fprintf('[Save] simlog saved: %s\n', simlog_file);
-            catch ME
-                warning('RunThermalComparison:simlogSave', ...
-                        'Failed to save simlog: %s', ME.message);
+            if ~saveSimlog
+                fprintf('[Save] simlog not saved (saveSimlog = false).\n');
+            else
+                try
+                    save(simlog_file, 'simlog', '-v7.3');
+                    fprintf('[Save] simlog saved: %s\n', simlog_file);
+                catch ME
+                    warning('RunThermalComparison:simlogSave', ...
+                            'Failed to save simlog: %s', ME.message);
+                end
             end
 
             % 6b) Export 1-Hz training data -> Results/run_.../training_data_<ctrl>_T<|T|>.mat
             try
-                export_training_data(simOut, simlog, T, ctrl, outdir);
+                export_training_data(simOut, simlog, T, ctrl, outdir, cycle);
             catch ME
                 warning('RunThermalComparison:export', 'Training-data export failed: %s', ME.message);
             end
@@ -274,15 +328,15 @@ end
 %% ═════════════════════════════════════════════════════════════════════════
 %% Set scenario parameters
 %% ═════════════════════════════════════════════════════════════════════════
-function set_cold_weather_scenario(MODEL, T_amb_C)
+function set_cold_weather_scenario(MODEL, T_amb_C, cycle)
+    if nargin < 3, cycle = 'WLTCHW'; end
 
     subsys = [MODEL '/Scenario'];
     mws    = get_param(MODEL, 'ModelWorkspace');
 
     T_str = num2str(T_amb_C);
 
-    set_param([subsys '/Vehicle Speed [km//hr]'], ...
-              'ActiveScenario', 'DriveCycle');
+    % The speed scenario (drive cycle) is set once per cycle by select_drive_cycle.
 
     set_param([subsys '/Variant Source'], ...
               'LabelModeActiveChoice', 'constant');
@@ -311,7 +365,7 @@ function set_cold_weather_scenario(MODEL, T_amb_C)
     assignin(mws, 'battery_Qe_init',        0);
 
     set_param([MODEL '/Scenario'], 'Tag', ...
-              sprintf('cold_weather_%ddegC', T_amb_C));
+              sprintf('cold_weather_%ddegC_%s', T_amb_C, cycle));
 
     fprintf('[Scenario] Tamb = %d°C  |  ref_p_init = %.2f MPa\n', ...
             T_amb_C, ref_p_map(T_amb_C));
@@ -856,7 +910,7 @@ end
 %% ═════════════════════════════════════════════════════════════════════════
 %% Interactive menu
 %% ═════════════════════════════════════════════════════════════════════════
-function [ctrl_sel, temp_sel] = interactive_menu()
+function [ctrl_sel, temp_sel, cycles] = interactive_menu()
 
     fprintf('\n══════════════════════════════════════\n');
     fprintf('  Thermal Management Comparison Tool  \n');
@@ -886,7 +940,8 @@ function [ctrl_sel, temp_sel] = interactive_menu()
     fprintf('  4 — All three\n');
     fprintf('  5 — New cold set: 0, -12, -15, -20\n');
     fprintf('  6 — Extra cold: -25, -30\n');
-    temp_choice = input('Choice [1-6]: ');
+    fprintf('  7 — All nine: 0, -5, -7, -10, -12, -15, -20, -25, -30\n');
+    temp_choice = input('Choice [1-7]: ');
 
     switch temp_choice
         case 1
@@ -901,15 +956,95 @@ function [ctrl_sel, temp_sel] = interactive_menu()
             temp_sel = [0, -12, -15, -20];
         case 6
             temp_sel = [-25, -30];
+        case 7
+            temp_sel = [0, -5, -7, -10, -12, -15, -20, -25, -30];
         otherwise
             error('Invalid choice');
     end
 
-    fprintf('\nRunning: Controller = %s   Temperatures = %s°C\n\n', ...
-            upper(ctrl_sel), num2str(temp_sel));
+    C = drive_cycle_list();
+    fprintf('\nSelect drive cycle(s): one number, or several in brackets, e.g. [2 3]\n');
+    for k = 1:numel(C)
+        fprintf('  %d — %-6s %s\n', k, C(k).handle, C(k).description);
+    end
+    fprintf('  %d — All %d cycles\n', numel(C) + 1, numel(C));
+    cyc_choice = input(sprintf('Choice [1-%d, Enter = 1]: ', numel(C) + 1));
+    if isempty(cyc_choice), cyc_choice = 1; end
+    if isscalar(cyc_choice) && cyc_choice == numel(C) + 1
+        cyc_choice = 1:numel(C);
+    end
+    if any(cyc_choice < 1 | cyc_choice > numel(C) | cyc_choice ~= round(cyc_choice))
+        error('Invalid choice');
+    end
+    cycles = {C(cyc_choice).handle};
+
+    fprintf('\nRunning: Controller = %s   Temperatures = %s°C   Cycles = %s\n\n', ...
+            upper(ctrl_sel), num2str(temp_sel), strjoin(cycles, ', '));
 end
 
 function [t_out, y_out] = resample_1hz(t_in, y_in)
     t_out = (ceil(t_in(1)) : floor(t_in(end)))';   
     y_out = interp1(t_in, y_in, t_out, 'linear');
+end
+
+
+%% ═════════════════════════════════════════════════════════════════════════
+%% Select drive cycle
+%% ═════════════════════════════════════════════════════════════════════════
+function cyc = select_drive_cycle(MODEL, cycle, repoRoot)
+% Point the Signal Editor block (Scenario/Vehicle Speed) at DriveCycles_SSY226.mat, pick the
+% cycle's scenario and set StopTime to the cycle length. The file is (re)built automatically by
+% make_drive_cycles when it is missing or older than its sources. Returns cyc.restore() to undo it.
+    c   = drive_cycle_list(cycle);
+    blk = [MODEL '/Scenario/Vehicle Speed [km//hr]'];
+    old.file     = get_param(blk, 'FileName');
+    old.scenario = get_param(blk, 'ActiveScenario');
+    old.stop     = get_param(MODEL, 'StopTime');
+    cyc.restore  = @() restore_cycle(MODEL, blk, old);
+
+    cycFile = drive_cycles_file(repoRoot);
+    V  = load(cycFile, c.scenario);
+    ts = V.(c.scenario){1};
+    set_param(blk, 'FileName', cycFile);
+    set_param(blk, 'ActiveScenario', c.scenario);
+    set_param(MODEL, 'StopTime', num2str(ts.Time(end)));
+    fprintf('[Cycle] %s: %s | %.0f s, %.1f km, max %.0f km/h\n', c.handle, c.description, ...
+            ts.Time(end), trapz(ts.Time, double(ts.Data)) / 3600, max(ts.Data));
+end
+
+function cycFile = drive_cycles_file(repoRoot)
+% DriveCycles_SSY226.mat, rebuilt when missing or older than the code or speed files that make it.
+    cycFile = fullfile(repoRoot, 'DriveCycles_SSY226.mat');
+    src = [dir(fullfile(repoRoot, 'Source Files', 'make_drive_cycles.m')); ...
+           dir(fullfile(repoRoot, 'Source Files', 'drive_cycle_list.m')); ...
+           dir(fullfile(repoRoot, 'Data', 'drive_cycles', '*.txt'))];
+    if ~isfile(cycFile) || any([src.datenum] > getfield(dir(cycFile), 'datenum'))
+        fprintf('[Cycle] Building %s ...\n', cycFile);
+        make_drive_cycles();
+    end
+end
+
+function restore_cycle(MODEL, blk, old)
+    if ~bdIsLoaded(MODEL), return; end
+    set_param(blk, 'FileName', old.file);
+    set_param(blk, 'ActiveScenario', old.scenario);
+    set_param(MODEL, 'StopTime', old.stop);
+    evalin('base', 'clear ACTIVE_DRIVE_CYCLE');
+    fprintf('[Cycle] Scenario block restored (%s, %s).\n', old.file, old.scenario);
+end
+
+
+%% ═════════════════════════════════════════════════════════════════════════
+%% Drive-cycle argument -> cell array of handles
+%% ═════════════════════════════════════════════════════════════════════════
+function cycles = parse_cycles(arg)
+    all_handles = {drive_cycle_list().handle};
+    if (ischar(arg) || isstring(arg)) && isscalar(string(arg)) && strcmpi(arg, 'all')
+        cycles = all_handles;
+        return
+    end
+    cycles = cellstr(string(arg));
+    for k = 1:numel(cycles)
+        cycles{k} = drive_cycle_list(cycles{k}).handle;   % validates, maps 'DriveCycle' -> 'WLTCHW'
+    end
 end

@@ -1,4 +1,4 @@
-function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
+function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir, cycle)
 % EXPORT_TRAINING_DATA  Save one simulation run as 1-Hz training data.
 %
 %   file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
@@ -8,6 +8,13 @@ function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
 %     missing    names of wanted signals that could not be found (fill in later)
 %
 %   Called automatically by RunThermalComparison after each run.
+%   cycle (optional): drive-cycle handle from drive_cycle_list ('WLTCHW' = original, default; 'NEDC',
+%   'UDDS', 'US06'). It is stored as trainingData.cycle and ends the file name:
+%       training_data_rule_T10_UDDS.mat, training_data_rule_T10_WLTCHW.mat
+%   Exports made before 18 Nov (training_data_rule_T10.mat) are WLTCHW.
+
+    if nargin < 6 || isempty(cycle), cycle = 'WLTCHW'; end
+    cycle = drive_cycle_list(cycle).handle;          % validates; 'DriveCycle' -> 'WLTCHW'
 
     t_sim = simlog.Motor.Motor.T.series.time;   % 'time' is a method: call it first, then index
     t_end = t_sim(end);
@@ -17,6 +24,7 @@ function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
     trainingData.t_s     = t1hz;
     trainingData.T_amb_C = T_amb_C;
     trainingData.ctrl    = ctrl;
+    trainingData.cycle   = cycle;
     missing    = {};
 
     % ---- Signals with confirmed Simscape paths (same as compute_energy_results) ----
@@ -87,10 +95,16 @@ function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
     [trainingData.compInT_C,    missing] = grab(simlog, 'Compressor.Compressor.A.T', 'degC',  t1hz, missing);
 
     % ---- Vehicle speed: not in the Simscape log, taken from the drive-cycle file ----
-    % (same file and variable as init_nmpc.m; the Scenario block uses the 'DriveCycle' entry, in km/h)
+    % The speed of the cycle actually driven, from the file the Scenario block reads (km/h).
     try
-        V  = load('ElectricVehicleThermalManagementWithHeatPumpVehicleSpeed.mat');
-        ts = V.DriveCycle{1};
+        if isfile(which('DriveCycles_SSY226.mat'))
+            V  = load('DriveCycles_SSY226.mat', cycle);
+            ts = V.(cycle){1};
+        else                                              % before make_drive_cycles: original cycle only
+            assert(strcmp(cycle, 'WLTCHW'), 'DriveCycles_SSY226.mat missing: run make_drive_cycles');
+            V  = load('ElectricVehicleThermalManagementWithHeatPumpVehicleSpeed.mat');
+            ts = V.DriveCycle{1};
+        end
         [tv, iu] = unique(ts.Time(:));
         dv = ts.Data(:);
         trainingData.vehSpeed_kmh = interp1(tv, dv(iu), t1hz, 'linear', 0);
@@ -101,7 +115,7 @@ function file = export_training_data(simOut, simlog, T_amb_C, ctrl, outdir)
         missing{end+1} = 'vehSpeed';
     end
 
-    file = fullfile(outdir, sprintf('training_data_%s_T%d.mat', ctrl, abs(T_amb_C)));
+    file = fullfile(outdir, sprintf('training_data_%s_T%d_%s.mat', ctrl, abs(T_amb_C), cycle));
     save(file, 'trainingData', 'missing');
     fprintf('[Export] %s  (%d s, %d signals still to map)\n', file, numel(t1hz), numel(missing));
 end

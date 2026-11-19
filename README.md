@@ -61,6 +61,35 @@ RunThermalComparison('both', [-5, -7, -10])
 RunThermalComparison('nmpc', -10)
 ```
 
+### Drive cycles
+
+Every run uses one drive cycle, chosen by its handle (list in `Source Files/drive_cycle_list.m`):
+
+| Handle | Cycle |
+|---|---|
+| `WLTCHW` | Original: WLTC + 130 km/h highway (paper, all data before 18 Nov). Default. |
+| `NEDC` | 4 × urban ECE-15 + extra-urban EUDC |
+| `UDDS` | EPA city stop-and-go |
+| `US06` | EPA aggressive, hard accelerations (stress test) |
+
+Each cycle is repeated to 3600 s (one-hour cold start). The cycles are stored as Signal Editor scenarios in
+`DriveCycles_SSY226.mat`, built automatically by `make_drive_cycles` from `Data/drive_cycles/`. The Scenario
+block is switched in memory for the run and restored afterwards; the `.slx` file is not modified.
+
+```matlab
+RunThermalComparison                                 % menu: controller, temperatures, drive cycles
+RunThermalComparison('rule', [-10 -7], 'UDDS')       % one cycle
+RunThermalComparison('rule', 'all', 'all', false)    % all 9 temperatures on all cycles, no simlog files
+
+RunDriveCycleDataset('DryRun', true)                 % show the dataset plan
+RunDriveCycleDataset                                 % NEDC, UDDS, US06 at all 9 temperatures; skips runs
+                                                     % already exported, checks every export, prints a summary
+```
+
+Output: `Results/run_<time>_<handle>/training_data_<ctrl>_T<|T|>_<handle>.mat` (`trainingData.cycle` holds
+the handle). In Python, `load_all_profiles(..., cycles=("UDDS",))` loads them with keys like `"UDDS_12"`;
+section 6 of `python/partB_gamma_network.ipynb` tests the γ network on them.
+
 To reset the solver (required when changing horizon, sample time, bounds, or model structure):
 ```matlab
 clear MPCController_step_coreLQRNew

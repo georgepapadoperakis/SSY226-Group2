@@ -132,35 +132,94 @@ def load_new_profile(path):
     return _profile(int(round(abs(Tamb))), Tamb, x, u, heat, ctrl, superheat)
 
 
-def load_all_profiles(data_dir, results_dir, cache_dir, verbose=True):
-    """All profiles keyed by |Tamb| (12 means -12 °C): old files in data_dir, new exports in results_dir.
+ORIGINAL_CYCLE = "WLTCHW"     # the paper's cycle (WLTC + 130 km/h highway); all data from before 18 Nov
+
+
+def profile_key(T, cycle=ORIGINAL_CYCLE):
+    """Key of a profile in the dict from load_all_profiles.
+
+    Original cycle: |Tamb| as an int, as before (PB[12] is -12 °C), so existing code keeps working.
+    Other cycles:   "<cycle>_<|Tamb|>", e.g. "UDDS_12" for UDDS at -12 °C.
+    """
+    T = int(abs(T))
+    return T if cycle == ORIGINAL_CYCLE else f"{cycle}_{T}"
+
+
+def profile_label(key, profiles=None):
+    """Readable label, e.g. '-12 °C WLTCHW' or '-12 °C UDDS'."""
+    cyc, T = key.rsplit("_", 1) if isinstance(key, str) else (ORIGINAL_CYCLE, key)
+    return f"{-int(T):+d} °C {cyc}" if int(T) else f"0 °C {cyc}"
+
+
+def parse_export_name(path):
+    """(kind, ctrl, |T|, cycle) from a data file name, or None if it is not a profile file.
+
+    Data/tuning_data_<T>.mat                         -> old export, original cycle
+    training_data_<ctrl>_T<T>.mat                    -> new export, original cycle (before 18 Nov)
+    training_data_<ctrl>_T<T>_<cycle>.mat            -> new export, cycle handle from RunThermalComparison
+    """
+    import re
+    name = os.path.basename(path)
+    m = re.fullmatch(r"tuning_data_(\d+)\.mat", name)
+    if m:
+        return "old", "rule", int(m.group(1)), ORIGINAL_CYCLE
+    m = re.fullmatch(r"training_data_([a-z]+)_T(\d+)(?:_([A-Za-z0-9]+))?\.mat", name)
+    if m:
+        return "new", m.group(1), int(m.group(2)), m.group(3) or ORIGINAL_CYCLE
+    return None
+
+
+def load_all_profiles(data_dir, results_dir, cache_dir, cycles=(ORIGINAL_CYCLE,), verbose=True):
+    """Rule-based profiles of the chosen drive cycles: old files in data_dir, new exports in results_dir.
+
+    cycles: drive-cycle handles to load, e.g. ("NEDC", "UDDS", "US06"), or "all". Default: the original
+            cycle only, so the notebook behaves exactly as before.
+    Keys:   see profile_key: |Tamb| as int for the original cycle, "<cycle>_<|Tamb|>" for the others.
+    If two files exist for the same cycle and temperature, a new export wins over an old one, then the
+    newest file; the choice is printed.
 
     The CoolProp step takes ~15 s per profile, so each profile is cached in cache_dir. A cache file is rebuilt
     automatically when its source .mat file is newer (e.g. after re-running a simulation).
     """
     import glob, time
     os.makedirs(cache_dir, exist_ok=True)
-    sources = [(p, load_old_profile, "old") for p in sorted(glob.glob(os.path.join(data_dir, "tuning_data_*.mat")))]
-    sources += [(p, load_new_profile, "new")
-                for p in sorted(glob.glob(os.path.join(results_dir, "**", "training_data_*.mat"), recursive=True))]
+    files = sorted(glob.glob(os.path.join(data_dir, "tuning_data_*.mat")))
+    files += sorted(glob.glob(os.path.join(results_dir, "**", "training_data_*.mat"), recursive=True))
+
+    found = {}                                       # key -> list of (rank, path, kind, cycle)
+    for path in files:
+        info = parse_export_name(path)
+        if info is None:
+            continue
+        kind, ctrl, T, cyc = info
+        if ctrl != "rule" or (cycles != "all" and cyc not in cycles):
+            continue
+        rank = (kind == "new", os.path.getmtime(path))
+        found.setdefault(profile_key(T, cyc), []).append((rank, path, kind, cyc))
+
     profiles = {}
-    for path, loader, kind in sources:
-        tag = os.path.splitext(os.path.basename(path))[0].split("_")[-1].lstrip("T")
+    for key, cands in found.items():
+        cands.sort(reverse=True)
+        _, path, kind, cyc = cands[0]
+        T = abs(key) if isinstance(key, int) else int(key.rsplit("_", 1)[1])
+        tag = str(T) if cyc == ORIGINAL_CYCLE else f"{cyc}_{T}"   # original keeps its old cache names
         cache = os.path.join(cache_dir, f"partB_{kind}_{tag}.pt")
         if os.path.exists(cache) and os.path.getmtime(cache) >= os.path.getmtime(path):
             prof = torch.load(cache, weights_only=False)
             how = "cache"
         else:
             t0 = time.time()
-            prof = loader(path)
+            prof = load_old_profile(path) if kind == "old" else load_new_profile(path)
             torch.save(prof, cache)
             how = f"built in {time.time() - t0:.0f} s"
-        if prof["T"] in profiles:
-            raise ValueError(f"two files for Tamb = {prof['Tamb']} °C (second: {path}); keep only one")
-        profiles[prof["T"]] = prof
+        prof["cycle"] = cyc
+        profiles[key] = prof
         if verbose:
-            print(f"  Tamb {prof['Tamb']:+4.0f} °C  {kind}  {os.path.relpath(path, os.path.dirname(results_dir))}  ({how})")
-    return dict(sorted(profiles.items()))
+            rel = os.path.relpath(path, os.path.dirname(results_dir))
+            extra = f"; also found {len(cands) - 1} older file(s), not used" if len(cands) > 1 else ""
+            print(f"  {profile_label(key):>16s}  {kind}  {rel}  ({how}{extra})")
+    order = lambda kv: (isinstance(kv[0], str), kv[1]["cycle"], abs(kv[1]["Tamb"]))
+    return dict(sorted(profiles.items(), key=order))
 
 
 HELD_EST = [n for n in EST_NAMES if n not in ("motQmeas", "invQmeas", "dcdcQmeas", "batImeas", "speed")]
