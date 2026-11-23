@@ -1,0 +1,24 @@
+% 30-s horizon RMSE, 8 test runs. Needs \usepackage{booktabs}.
+\begin{table*}[t]
+\centering
+\caption{Prediction error over the NMPC horizon ($N = 30$, $\Delta t = 1$\,s): RMSE of 30-s predictions started from the reference state every 30\,s. Components = mean over $T_{\mathrm{mot}}, T_{\mathrm{inv}}, T_{\mathrm{dcdc}}, T_{\mathrm{b}}$. Tab.\ = interpolation table, original COM; NN = $\gamma$ network (11 parameters), original COM; NN$^{\ast}$ = $\gamma$ network (15 parameters), fixed COM. Best per group in bold.}
+\label{tab:horizon30}
+\begin{tabular}{l ccc ccc ccc}
+\toprule
+ & \multicolumn{3}{c}{Components (K)} & \multicolumn{3}{c}{$T_{\mathrm{cair}}$ (K)} & \multicolumn{3}{c}{$p_{\mathrm{out}}$ (bar)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+Test run & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ \\
+\midrule
+UDDS, $0\,^{\circ}$C & 0.19 & 0.16 & \textbf{0.12} & 0.52 & \textbf{0.05} & 0.16 & 1.60 & 0.21 & \textbf{0.14} \\
+UDDS, $-7\,^{\circ}$C & 0.26 & 0.22 & \textbf{0.11} & 0.45 & \textbf{0.06} & 0.18 & 2.50 & \textbf{0.09} & 0.10 \\
+UDDS, $-12\,^{\circ}$C & 0.32 & 0.27 & \textbf{0.16} & 0.69 & 0.40 & \textbf{0.35} & 4.33 & \textbf{1.22} & 1.33 \\
+UDDS, $-20\,^{\circ}$C & 0.43 & 0.36 & \textbf{0.18} & 0.68 & 0.37 & \textbf{0.35} & 8.46 & \textbf{0.83} & 0.93 \\
+UDDS, $-25\,^{\circ}$C & 0.53 & 0.44 & \textbf{0.19} & 0.49 & 0.36 & \textbf{0.33} & 5.26 & \textbf{0.38} & 0.41 \\
+WLTCHW, $-7\,^{\circ}$C & 0.35 & 0.28 & \textbf{0.21} & 0.71 & \textbf{0.40} & 0.42 & 3.22 & 1.76 & \textbf{1.40} \\
+NEDC, $-12\,^{\circ}$C & 0.39 & 0.28 & \textbf{0.16} & 0.68 & 0.41 & \textbf{0.34} & 3.88 & \textbf{1.21} & 1.33 \\
+US06, $-7\,^{\circ}$C & 0.40 & 0.30 & \textbf{0.14} & 0.57 & \textbf{0.06} & 0.20 & 2.31 & \textbf{0.11} & 0.12 \\
+\midrule
+All & 0.37 & 0.30 & \textbf{0.16} & 0.61 & \textbf{0.31} & 0.31 & 4.44 & 0.93 & \textbf{0.91} \\
+\bottomrule
+\end{tabular}
+\end{table*}

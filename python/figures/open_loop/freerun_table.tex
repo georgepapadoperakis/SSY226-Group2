@@ -1,0 +1,25 @@
+% 1-h free-run MAE, 8 test runs. Needs \usepackage{booktabs}.
+\begin{table*}[t]
+\centering
+\caption{One-hour free run of the COM from the reference state at $t=0$ (no resets), driven by the inputs of the rule-based reference simulation: mean absolute error against the reference model. Components = mean over $T_{\mathrm{mot}}, T_{\mathrm{inv}}, T_{\mathrm{dcdc}}, T_{\mathrm{b}}$. Tab.\ = interpolation table, original COM; NN = $\gamma$ network (11 parameters), original COM; NN$^{\ast}$ = $\gamma$ network (15 parameters), fixed COM. Best per group in bold.}
+\label{tab:freerun}
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{l ccc ccc ccc ccc ccc}
+\toprule
+ & \multicolumn{3}{c}{Components ($^{\circ}$C)} & \multicolumn{3}{c}{$T_{\mathrm{cair}}$ ($^{\circ}$C)} & \multicolumn{3}{c}{$T_{\mathrm{cint}}$ ($^{\circ}$C)} & \multicolumn{3}{c}{$p_{\mathrm{in}}$ (bar)} & \multicolumn{3}{c}{$p_{\mathrm{out}}$ (bar)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}\cmidrule(lr){11-13}\cmidrule(lr){14-16}
+Test run & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ & Tab. & NN & NN$^{\ast}$ \\
+\midrule
+UDDS, $0\,^{\circ}$C & 0.93 & 1.64 & \textbf{0.41} & 0.98 & 0.99 & \textbf{0.81} & 1.30 & 0.93 & \textbf{0.27} & 0.25 & 0.27 & \textbf{0.12} & 4.49 & 4.13 & \textbf{1.21} \\
+UDDS, $-7\,^{\circ}$C & 1.93 & 2.24 & \textbf{0.27} & 1.58 & \textbf{0.57} & 1.03 & 3.72 & 0.40 & \textbf{0.29} & 0.08 & 0.24 & \textbf{0.04} & 1.20 & 2.25 & \textbf{0.66} \\
+UDDS, $-12\,^{\circ}$C & 1.71 & 2.68 & \textbf{0.13} & 1.58 & \textbf{0.62} & 0.89 & 2.99 & \textbf{0.12} & 0.36 & 0.46 & 0.39 & \textbf{0.03} & 4.28 & 1.16 & \textbf{0.87} \\
+UDDS, $-20\,^{\circ}$C & 3.94 & 3.80 & \textbf{0.30} & 8.19 & 2.17 & \textbf{0.56} & 4.64 & 0.96 & \textbf{0.47} & 0.46 & 0.34 & \textbf{0.03} & 9.66 & 2.34 & \textbf{0.96} \\
+UDDS, $-25\,^{\circ}$C & 6.09 & 4.24 & \textbf{0.54} & 10.90 & 1.98 & \textbf{0.60} & 4.82 & 0.62 & \textbf{0.48} & 0.31 & 0.19 & \textbf{0.02} & 7.24 & 1.37 & \textbf{0.65} \\
+WLTCHW, $-7\,^{\circ}$C & 1.08 & 1.53 & \textbf{0.36} & 1.05 & 1.26 & \textbf{0.98} & 3.55 & \textbf{0.20} & 0.41 & 0.19 & 0.07 & \textbf{0.03} & 2.31 & 1.59 & \textbf{0.74} \\
+NEDC, $-12\,^{\circ}$C & 1.55 & 3.18 & \textbf{0.13} & 1.43 & \textbf{0.46} & 0.83 & 3.19 & \textbf{0.33} & 0.39 & 0.43 & 0.42 & \textbf{0.03} & 3.97 & \textbf{0.94} & 1.06 \\
+US06, $-7\,^{\circ}$C & 1.22 & 2.45 & \textbf{0.53} & 1.02 & \textbf{0.97} & 1.25 & 3.11 & \textbf{0.12} & 0.26 & 0.26 & 0.12 & \textbf{0.07} & 1.66 & 2.00 & \textbf{1.42} \\
+\midrule
+All & 2.31 & 2.72 & \textbf{0.33} & 3.34 & 1.13 & \textbf{0.87} & 3.42 & 0.46 & \textbf{0.37} & 0.31 & 0.26 & \textbf{0.05} & 4.35 & 1.97 & \textbf{0.95} \\
+\bottomrule
+\end{tabular}
+\end{table*}

@@ -1,0 +1,18 @@
+# Python environment for the notebook (python/notebook_gamma_network.ipynb) and Part B.
+# Create it with:   conda env create -f environment.yml
+# Update it with:   conda env update -f environment.yml --prune
+name: ssy226
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - matplotlib
+  - ipykernel          # lets VS Code run the notebook in this environment
+  - pytorch            # CPU build is enough (the models are small)
+  - cpuonly
+  - pip
+  - pip:
+      - CoolProp       # refrigerant properties (python/fluid_props_coolprop.py), also used by MATLAB via pyenv

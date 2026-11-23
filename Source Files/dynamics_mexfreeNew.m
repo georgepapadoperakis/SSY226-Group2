@@ -7,20 +7,20 @@ function [xdot,mdlOut_sym,J] = dynamics_mexfreeNew(x, u, p)
 
     % ---- Flow: coolant/refrigerant path + auxiliaries ----
     cmp = pumpMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp);
+    cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp, P);
+    cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp, P);
     cmp = hpExvMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp);
+    cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp, P);
 
     % Loop solver (sets mdlInput.u.htxClntTinK)
-    [T0, ~, ~] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut);
+    [T0, ~, ~] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut, P);
     mdlInput.u.htxClntTinK = T0;
 
     cmp = htxMdl(mdlInput, estimatedParams, controlOut, cmp, P);
     cmp = evapExv(mdlInput, estimatedParams, controlOut, cmp);
     cmp = evaporatorMdl(mdlInput, estimatedParams, controlOut, cmp);
     cmp = chillerMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp);
+    cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp, P);
 
     % ---- Electric powertrain & cabin ----
     cmp = batMdl(mdlInput, estimatedParams, controlOut, cmp, P);
@@ -120,6 +120,33 @@ function [mdlInput, estimatedParams, controlOut, tunePara] = build_runtime_conte
     controlOut      = p.ctrl;
     tunePara        = p.tuneParam;
     mdlInput.u.batImeas = estimatedParams.batImeas + 1e-3;
+
+    % COM fixes (15 tuning parameters): gamma4, 7, 9, 10, 11 are rescaled so that gamma = 1 sits where the
+    % trained network wants them; gamma10 also gets a wider range (0.28*gamma^1.5). See com_fix_constants.
+    if numel(tunePara) >= 15
+        c = com_fix_constants();
+        for i = 1:numel(c.GAMMA_SCALE_IDX)
+            k = c.GAMMA_SCALE_IDX(i);
+            tunePara(k) = c.GAMMA_SCALE(i) * tunePara(k)^c.GAMMA_POWER(i);
+        end
+    end
+end
+
+% ========================= COM fixes: constants =========================
+function c = com_fix_constants()
+% COM fixes (21 Nov 2026), used only when 15 tuning parameters are given (fewer = original COM exactly).
+% Same values as python/com_torch.py (FRONT_G, IC_UA, CAB_K, K_HTX/K_MOT/K_INV, GAMMA_SCALE/GAMMA_POWER).
+% Evidence: heat-flow comparison with the HFM (export_heat_balance.m), see the project notes.
+%   p13 = HTX UA, p14 = motor -> coolant UA, p15 = inverter -> coolant UA (multipliers, 1 = nominal).
+    c.FRONT_G = [7.88, 20.09, 70.5];          % front HX conductance G = a*v[m/s] + b*fan[krpm] + c  [W/K]
+    c.IC_UA   = [190.7, 0.669];               % inner condenser air-side UA = a*mdot_air^b  [W/K]
+    c.CAB_K   = [1/0.01611, 0.3056, 0.4513, 1.4400];  % cabin: air speed, air<->interior, interior speed, interior<->ambient
+    c.K_HTX   = 2.6159;                       % HTX UA multiplier at gamma13 = 1
+    c.K_MOT   = 1.5887;                       % motor -> coolant UA multiplier at gamma14 = 1
+    c.K_INV   = 5.1496*25;                    % inverter -> coolant UA multiplier at gamma15 = 1
+    c.GAMMA_SCALE_IDX = [4, 7, 9, 10, 11];    % effective gamma_k = scale * gamma_k^power
+    c.GAMMA_SCALE     = [0.3, 0.03, 4.0, 0.28, 6.0];
+    c.GAMMA_POWER     = [1, 1, 1, 1.5, 1];
 end
 
 
@@ -127,7 +154,14 @@ end
 % ======================================================================
 % Thermal components
 % ======================================================================
-function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut)
+function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut, P)
+    fix = nargin >= 5 && numel(P) >= 15;     % COM fixes on
+    if fix
+        c = com_fix_constants();
+        k_htx = c.K_HTX*P(13);  g7 = P(7);  k_mot = c.K_MOT*P(14);  k_inv = c.K_INV*P(15);
+    else
+        k_htx = 1;  g7 = [];  k_mot = 1;  k_inv = 1;
+    end
     % Flows & cp
     clntCp = estimatedParams.clntCp;
     m_mot  = cmp.motPump.output.clntMf;
@@ -137,13 +171,13 @@ function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimated
     m_bat  = m_tot_bat - m_dcdc;
     m_mix  = m_bat + m_dcdc;                                
 
-    [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot);
-    [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput);
+    [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot, k_htx, fix);
+    [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput, fix);
 
     a_T2_T0 = a_heat * a_htx;
     b_T2    = a_heat * b_htx + b_heat;
 
-    [a_bat,  b_bat]  = local_branch_affine_bat(cmp, estimatedParams, m_bat,  clntCp, mdlInput.state.batT);
+    [a_bat,  b_bat]  = local_branch_affine_bat(cmp, estimatedParams, m_bat,  clntCp, mdlInput.state.batT, g7);
     [a_dcdc, b_dcdc] = local_branch_affine_dcdc(cmp, estimatedParams, m_dcdc, clntCp, mdlInput.state.dcdcT);
 
     w_bat  = m_bat /(m_bat + m_dcdc + 1e-12);
@@ -155,8 +189,8 @@ function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimated
     a_Tmotin_T0 = cmdPS * (a_mix * a_T2_T0) + (1 - cmdPS) * a_htx;
     b_Tmotin    = cmdPS * (a_mix * b_T2 + b_mix) + (1 - cmdPS) * b_htx;
 
-    [a_mot, b_mot] = local_component_affine_mot(cmp, estimatedParams, m_mot, clntCp, mdlInput.state.motT);
-    [a_inv, b_inv] = local_component_affine_inv(cmp, estimatedParams, m_mot, clntCp, mdlInput.state.invT);
+    [a_mot, b_mot] = local_component_affine_mot(cmp, estimatedParams, m_mot, clntCp, mdlInput.state.motT, k_mot);
+    [a_inv, b_inv] = local_component_affine_inv(cmp, estimatedParams, m_mot, clntCp, mdlInput.state.invT, k_inv);
 
     a_chain = a_mot * a_Tmotin_T0;
     b_chain = a_mot * b_Tmotin + b_mot;
@@ -170,7 +204,7 @@ end
 % ===================== Local affine builders =====================
 
 
-function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
+function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot, k_ua, fix)
     refArea  = 7.854e-05; clntArea = 0.00028353;
     totalHxArea = 64*pi*0.0035*0.1;
     ntuCorrectionFactor = 0.9;
@@ -183,7 +217,11 @@ function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
 
     refMf  = cmp.compressor.output.refMf;
     clntMf = m_mot;
-    refTinK = cmp.condEvap.output.refToutK;
+    if fix
+        refTinK = cmp.hpExv.output.refToutK;     % fixes: evaporating refrigerant at T_sat(p_in)
+    else
+        refTinK = cmp.condEvap.output.refToutK;
+    end
 
     refD  = sqrt((4*refArea)/pi);  clntD = sqrt((4*clntArea)/pi);
     refV  = refMf /(refRho*refArea  + 1e-6);
@@ -199,6 +237,9 @@ function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
 
     thermalResistance = (1/(h_ref*totalHxArea + 1e-6)) + (1/(h_clnt*totalHxArea + 1e-6));
     UA = 1/(thermalResistance + 1e-6);
+    if fix
+        UA = UA*k_ua;                            % fixes: K_HTX*gamma13
+    end
 
     c_clnt = clntMf*clntCp;
 
@@ -211,9 +252,12 @@ function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
 end
 
 
-function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput)
+function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput, fix)
     heaterEfficiency = 0.85;
     heatTransferCorrection = 1.5;
+    if fix                                       % fixes: all heater power into the coolant (HFM ~99 %)
+        heaterEfficiency = 1.0;  heatTransferCorrection = 1.0;
+    end
 
     clntMf = m_tot_bat;
     heaterActualPowerW = heaterEfficiency * mdlInput.u.heaterPwr;
@@ -224,7 +268,7 @@ function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_t
     b_heat = dT;
 end
 
-function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, clntCp, T_batK)
+function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, clntCp, T_batK, g7)
     clntChannelD = 0.0092; hxAreaFactor = 0.736;
     convectionTuningFactor = 200; conductionTuningFactor = 0.7;
     NTU_MAX = 10;
@@ -234,8 +278,12 @@ function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, c
     UA = h_conv*hxAreaFactor*convectionTuningFactor;
     c_clnt = clntMf*clntCp;
 
-    % NTU cap
-    NTU_raw = (0.1*UA) / (c_clnt + 1e-6);
+    % NTU cap (fixes: same gamma7*UA as batMdl, so loop solve and battery model agree)
+    ntuFactor = 0.1;
+    if ~isempty(g7)
+        ntuFactor = g7;
+    end
+    NTU_raw = (ntuFactor*UA) / (c_clnt + 1e-6);
     NTU = NTU_MAX * tanh(NTU_raw / NTU_MAX);
     effectiveness = 1 - exp(-NTU);
 
@@ -274,9 +322,9 @@ function [a_dcdc, b_dcdc] = local_branch_affine_dcdc(cmp, estimatedParams, m_dcd
     b_dcdc = S_dcdc * T_dcdcK;
 end
 
-function [a_mot, b_mot] = local_component_affine_mot(cmp, estimatedParams, m_mot, clntCp, T_motK)
+function [a_mot, b_mot] = local_component_affine_mot(cmp, estimatedParams, m_mot, clntCp, T_motK, k_ua)
     clntChannelD = 0.0092; hxAreaFactor = 0.736;
-    convectionTuningFactor = 6.0; conductionTuningFactor = 0.254;
+    convectionTuningFactor = 6.0*k_ua; conductionTuningFactor = 0.254;   % k_ua = K_MOT*gamma14 (fixes) or 1
     NTU_MAX = 10;
 
     clntMf = m_mot;
@@ -299,9 +347,9 @@ function [a_mot, b_mot] = local_component_affine_mot(cmp, estimatedParams, m_mot
     b_mot = S * T_motK;
 end
 
-function [a_inv, b_inv] = local_component_affine_inv(cmp, estimatedParams, m_mot, clntCp, T_invK)
+function [a_inv, b_inv] = local_component_affine_inv(cmp, estimatedParams, m_mot, clntCp, T_invK, k_ua)
     clntChannelD = 0.0092; hxAreaFactor = 0.736;
-    convectionTuningFactor = 6.0; conductionTuningFactor = 0.254;
+    convectionTuningFactor = 6.0*k_ua; conductionTuningFactor = 0.254;   % k_ua = K_INV*gamma15 (fixes) or 1
     NTU_MAX = 10;
 
     clntMf = m_mot;
@@ -332,9 +380,14 @@ function cmp = htxMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     ntuCorrectionFactor = 0.9;
     NTU_MAX = 10;
 
+    fix = numel(P) >= 15;                        % COM fixes on
     clntMf = cmp.motPump.output.clntMf;
     refMf  = cmp.compressor.output.refMf;
-    refTinK  = cmp.condEvap.output.refToutK;
+    if fix
+        refTinK = cmp.hpExv.output.refToutK;     % fixes: evaporating refrigerant at T_sat(p_in)
+    else
+        refTinK = cmp.condEvap.output.refToutK;
+    end
     clntTinK = mdlInput.u.htxClntTinK;
 
     refCp  = estimatedParams.condEvapRefCp;
@@ -361,6 +414,10 @@ function cmp = htxMdl(mdlInput, estimatedParams, controlOut, cmp, P)
 
     thermalResistance = (1/(h_ref*totalHxArea + 1e-6)) + (1/(h_clnt*totalHxArea + 1e-6));
     UA = 1/(thermalResistance + 1e-6);
+    if fix
+        c = com_fix_constants();
+        UA = UA*c.K_HTX*P(13);
+    end
 
     c_clnt = clntMf*clntCp;
     c_min  = clntMf*clntCp;
@@ -413,18 +470,25 @@ function cmp = cabMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     avgCp_int = (glassMass_kg*glassCp_J_kgK + doorsMass_kg*doorsCp_J_kgK + roofMass_kg*roofCp_J_kgK) / totalMass_int;
     thermalMass_int = totalMass_int*avgCp_int;
 
-    q_env2int = (envT_K - cabIntT_K) / (R_total_env2int + 1e-6);
+    % COM fixes: cabin constants refitted to the HFM (air speed, air<->interior, interior speed, interior<->ambient)
+    if numel(P) >= 15
+        cf = com_fix_constants();  kA = cf.CAB_K(1); kC = cf.CAB_K(2); kI = cf.CAB_K(3); kE = cf.CAB_K(4);
+    else
+        kA = 1; kC = 1; kI = 1; kE = 1;
+    end
+
+    q_env2int = kE*(envT_K - cabIntT_K) / (R_total_env2int + 1e-6);
     q_air2int = alpha_Q_in2out*(cabAirT_K - cabIntT_K) / (R_total_env2int + 1e-6);
     qNet_int  = q_env2int + q_air2int;
 
-    cabIntT_dt = (P(1)*alpha_dt_int_num*qNet_int) / (alpha_dt_int_den*thermalMass_int + 1e-6);
+    cabIntT_dt = (kI*P(1)*alpha_dt_int_num*qNet_int) / (alpha_dt_int_den*thermalMass_int + 1e-6);
 
     thermalMass_air = cabVolume_m3*airDensity_kg_m3*airCp_J_kgK;
     qHvac = airMf_In*airCp_J_kgK*(airTempVent_K - cabAirT_K);
     R_int2air = alpha_R_air2int*R_total_env2int;
-    q_int2air = alpha_Q_int2air*(cabIntT_K - cabAirT_K) / (R_int2air + 1e-6);
+    q_int2air = kC*alpha_Q_int2air*(cabIntT_K - cabAirT_K) / (R_int2air + 1e-6);
 
-    cabAirT_dt = (P(2)*alpha_dt_air_num/(thermalMass_air + 1e-6)) * (qHvac + qHuman_W + P(8)*q_int2air);
+    cabAirT_dt = (kA*P(2)*alpha_dt_air_num/(thermalMass_air + 1e-6)) * (qHvac + qHuman_W + P(8)*q_int2air);
 
     cmp.cab.output.cabIntT_dt = cabIntT_dt;
     cmp.cab.output.cabAirT_dt = cabAirT_dt;
@@ -453,7 +517,7 @@ function cmp = pumpMdl(mdlInput, estimatedParams, controlOut, cmp)
     cmp.batPump.output.clntMf = batClntMf;
 end
 
-function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     compDispM3perRev = 80e-6;
     isenEff = 0.65;
     mechEff = 0.9;
@@ -471,6 +535,15 @@ function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp)
     p_in_floor  = 0.3e5;  
     eps_pFloor  = 1e6;    
     compPinSafe = (compPinPa + p_in_floor + sqrt((compPinPa - p_in_floor)^2 + eps_pFloor)) / 2;
+
+    % gamma12 (P(12)): suction specific volume follows the inlet pressure,
+    %   v_in = v_nom * (p_ref / p_in)^gamma12,  p_ref = 2 bar (flow unchanged at 2 bar).
+    % gamma12 = 0 (or only 11 parameters given) is the original fixed density (3 bar, 11 C).
+    % Fit to the HFM refrigerant mass flow: gamma12 ~ 0.83 (R134a vapour ~0.8-0.9).
+    if nargin >= 5 && numel(P) >= 12
+        p_ref_suction = 2.0e5;
+        vNominalIn = vNominalIn * (p_ref_suction / compPinSafe)^P(12);
+    end
 
     pressureRatio = compPoutPa / compPinSafe;
     volEff_calc = -0.0286*pressureRatio + 1.0286;
@@ -498,16 +571,23 @@ function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp)
     cmp.compressor.output.powerW    = powerW;
 end
 
-function cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     refArea = 7.854e-05;  airArea = 0.04;
     totalHxArea = 1.1088 + 0.9952;
     wallThermalResistance = 4.1868e-07;
     ntuAreaFactor = 18*40;
     NTU_MAX = 10;
 
+    fix = nargin >= 5 && numel(P) >= 15;         % COM fixes on
     refMf      = cmp.compressor.output.refMf;
     cabAirMfIn = mdlInput.u.cabAirMfIn;
-    refTinK    = cmp.compressor.output.compToutK;
+    if fix
+        % fixes: the refrigerant condenses at T_sat(p_out); the 120 C discharge temperature only holds for the
+        % short desuperheating part (no cap on q: q must depend on T_sat(p_out) - T_air, that pulls p_out back)
+        refTinK = estimatedParams.refTsatHighPK;
+    else
+        refTinK = cmp.compressor.output.compToutK;
+    end
     cabAirTinK = mdlInput.state.cabAirT;
 
     cabAirCp  = estimatedParams.cabAirCp;
@@ -553,6 +633,13 @@ function cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp)
     airTinK = cabAirTinK;
     qMax    = c_min*(refTinK - airTinK);
     qActual = effectiveness*qMax;
+    if fix
+        % fixes: air-side UA fitted to the HFM heat flow (WLTCHW -20 C: within 1 %, -12 C: 6 %)
+        cf = com_fix_constants();
+        UA_ic = cf.IC_UA(1)*(cabAirMfIn + 1e-6)^cf.IC_UA(2);
+        effectiveness = 1 - exp(-UA_ic/(c_air + 1e-6));
+        qActual = effectiveness*qMax*sigmoid_gate_c_air;
+    end
 
     delta_T_air = (qActual/(c_air + 1e-6)) * sigmoid_gate_c_air;
     cabAirToutK = cabAirTinK + delta_T_air;
@@ -594,7 +681,7 @@ function cmp = hpExvMdl(mdlInput, estimatedParams, controlOut, cmp)
     cmp.hpExv.output.h_out    = h_out;
 end
 
-function cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     refArea = 7.854e-05;  airArea = 0.04;
     totalHxArea = 1.1088 + 0.9952;
     NTU_MAX = 10;
@@ -651,6 +738,19 @@ function cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp)
     c_air = airMf*airCp;
 
     isHeatPumpMode = 1/(1 + exp(-10*(thermalMode - 1)));
+
+    if nargin >= 5 && numel(P) >= 15
+        % COM fixes: front HX active (the airMf = 0 above switched it off). Evaporating refrigerant at
+        % T_sat(p_in): q = G*(T_amb - T_ref), G fitted to the HFM. q > 0: heat taken from the outside air;
+        % q < 0 (refrigerant warmer than ambient): heat given to it. This limits p_in.
+        cf = com_fix_constants();
+        G = cf.FRONT_G(1)*estimatedParams.speed/3.6 + cf.FRONT_G(2)*mdlInput.u.radFanrpm/1000 + cf.FRONT_G(3);
+        qActual = isHeatPumpMode*G*(airTinK - refTinK);
+        cmp.condEvap.output.refToutK = refTinK;
+        cmp.condEvap.output.airToutK = airTinK - qActual/(G + 1e-6);
+        cmp.condEvap.output.qActualW = qActual;
+        return
+    end
 
     c_min_evap = c_air; qMax_evap = c_min_evap*(airTinK - refTinK);
     c_min_cond = c_air; qMax_cond = c_min_cond*(refTinK - airTinK);
@@ -808,9 +908,12 @@ function cmp = chillerMdl(mdlInput, estimatedParams, controlOut, cmp)%% not used
     cmp.chiller.output.qActualW  = qActual;
 end
 
-function cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     heaterEfficiency = 0.85;
     heatTransferCorrection = 1.5;
+    if nargin >= 5 && numel(P) >= 15             % fixes: all heater power into the coolant (HFM ~99 %)
+        heaterEfficiency = 1.0;  heatTransferCorrection = 1.0;
+    end
 
     clntTinK = cmp.chiller.output.clntToutK;
     clntMf   = cmp.batPump.output.clntMf;
@@ -950,6 +1053,10 @@ function cmp = invMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     invMassKg = 1.0; invCp = 447;
     convectionTuningFactor = 6.0;
     conductionTuningFactor = 0.254;
+    if numel(P) >= 15                            % fixes: inverter -> coolant UA x K_INV*gamma15
+        cf = com_fix_constants();
+        convectionTuningFactor = convectionTuningFactor*cf.K_INV*P(15);
+    end
 
     invT_K     = mdlInput.state.invT;
     clntCp     = estimatedParams.clntCp;
@@ -1020,6 +1127,10 @@ function cmp = motMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     motMassKg = 46.0; motCp = 447;
     convectionTuningFactor = 6.0; conductionTuningFactor = 0.254;
     NTU_MAX = 10;
+    if numel(P) >= 15                            % fixes: motor -> coolant UA x K_MOT*gamma14
+        cf = com_fix_constants();
+        convectionTuningFactor = convectionTuningFactor*cf.K_MOT*P(14);
+    end
 
     motT_K     = mdlInput.state.motT;
     clntCp     = estimatedParams.clntCp;

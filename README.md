@@ -11,6 +11,43 @@ This repository contains the MATLAB/CasADi implementation accompanying:
 
 The framework coordinates six thermal actuators (compressor, cabin blower, motor pump, battery pump, auxiliary heater, radiator fan) via constrained Nonlinear Model Predictive Control (NMPC) to minimize thermal energy consumption while maintaining cabin comfort and component temperature limits.
 
+## SSY226 group project: neural-network tuning parameters for the COM
+
+The NMPC predicts with a control-oriented model (COM) whose tuning parameters γ the paper looks up in an
+interpolation table. This branch adds a neural network that computes γ instead, plus a fixed COM version.
+The NMPC can run with three prediction models:
+
+| `comModel` | COM | Tuning parameters |
+|---|---|---|
+| `'table'` | original (paper) | 11 γ from the interpolation table `prepParaVec` (the paper's setup) |
+| `'nn11'` | original (paper) | 11 γ from the network `python/models/gamma11_original_com.mat` |
+| `'nn15'` | fixed (heat-exchanger, cabin and heater fixes, no extra states) | 15 γ from `python/models/gamma15_fixed_com.mat` |
+
+**Closed loop in MATLAB R2024b** (from the repo root):
+
+```matlab
+RunAllComModels                                         % WLTCHW -10 °C: rule + NMPC table/nn11/nn15 (~1 h 45 min)
+RunAllComModels(-7, 'UDDS')                             % other temperature / drive cycle
+RunThermalComparison('nmpc', -10, 'WLTCHW', false, 'nn15')   % one NMPC run with one model (~30 min)
+```
+
+Each run gets a folder named after what was run, e.g. `Results/run_<time>_WLTCHW_rule`,
+`Results/run_<time>_WLTCHW_nmpc-nn15`. Then, in the `python` folder: `python make_figures_nmpc.py`
+(energy, cabin, battery and inputs of all runs in one figure, plus a LaTeX table → `python/figures/nmpc/`).
+The default model for plain `RunThermalComparison` calls is the `COM_MODEL = ...` line in `init_nmpc.m`.
+
+**Open loop and training in Python:** see [`python/README.md`](python/README.md)
+(tests of both networks on 8 held-out runs, figures, training scripts).
+
+**Solver:** `init_nmpc.m` uses MA97 when a CoinHSL licence copy is found next to the repo
+(`../CoinHSL/` and `../casadi-3.7.1-hsl/`, personal licence, never commit it), otherwise MUMPS. Results are the
+same; MUMPS is slower.
+
+**Results so far (WLTCHW, −10 °C, 1 h):** rule-based 3019 Wh (paper: 3020). NMPC with the table −26.2 %
+(paper: −27.8 %), with nn11 −3.0 %, with nn15 −11.5 % (`python/figures/nmpc/`). Both networks predict better than the table on
+held-out data (open loop), but they were trained on rule-based data only; under NMPC inputs their errors
+grow (heater stays on, battery too warm). Retraining with closed-loop NMPC data is the next step.
+
 ---
 
 ## Requirements
@@ -87,13 +124,13 @@ RunDriveCycleDataset                                 % NEDC, UDDS, US06 at all 9
 ```
 
 Output: `Results/run_<time>_<handle>/training_data_<ctrl>_T<|T|>_<handle>.mat` (`trainingData.cycle` holds
-the handle). In Python, `load_all_profiles(..., cycles=("UDDS",))` loads them with keys like `"UDDS_12"`;
-section 6 of `python/partB_gamma_network.ipynb` tests the γ network on them.
+the handle). In Python, `gamma_net.load_all_profiles(..., cycles=("UDDS",))` loads them with keys like `"UDDS_12"`;
+section 6 of `python/notebook_gamma_network.ipynb` tests the γ network on them.
 
 To reset the solver (required when changing horizon, sample time, bounds, or model structure):
 ```matlab
 clear MPCController_step_coreLQRNew
-delete('nmpc_warm_cache.mat')
+delete('nmpc_warm_cache_v4.mat')
 ```
 
 ---
@@ -103,13 +140,20 @@ delete('nmpc_warm_cache.mat')
 | File | Description |
 |------|-------------|
 | `RunThermalComparison.m` | Entry point: multi-scenario NMPC vs rule-based comparison |
+| `RunAllComModels.m` | Rule-based + NMPC with all three prediction models (table, nn11, nn15) |
+| `init_nmpc.m` | NMPC settings: horizon, solver (MA97/MUMPS), prediction model `COM_MODEL` |
 | `MPCController_stepNew.m` | Simulink wrapper: unpacks bus, unit conversions, calls core |
 | `MPCController_step_coreLQRNew.m` | NMPC core: NLP construction, IPOPT solve, warm-starting |
 | `create_dynamics_nmpcNew.m` | CasADi symbolic dynamics `F(x, u, p)` |
 | `dynamics_mexfreeNew.m` | Control-oriented thermal model (CasADi-compatible) |
 | `estimateParameters.m` | CoolProp fluid property estimation at each step |
 | `thermalLogicAndEstimation.m` | Supervisory layer: mode selection, EXV commands |
-| `prepParaVec.m` | Parameter scheduling via interpolation |
+| `prepParaVec.m` | Parameter scheduling via interpolation (the `'table'` model) |
+| `gamma_network.m` | Tuning parameters from the γ network (`'nn11'`, `'nn15'`); `gamma_network()` = self-test |
+| `export_com_testcases.m` | Test cases for the Python COM port (`python/test_data/`) |
+| `export_heat_balance.m` | Exports the HFM heat flows of a run (used for the COM fault analysis) |
+| `export_training_data.m` | 1-Hz training data of a run (`training_data_*.mat`) |
+| `python/` | γ networks, PyTorch COM, tests and figures (see `python/README.md`) |
 
 ---
 

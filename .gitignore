@@ -1,2 +1,25 @@
-Results/
-Results/
+# Simulation results (GBs; share separately)
+/Results/
+/Data_cycles.zip
+
+# MATLAB autosaves, build caches and run-time files
+*.asv
+*.log
+*.slxc.bak
+slprj/
+nmpc_warm_cache*.mat
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+python/results/open_loop_test_results*.pt
+
+# Personal editor settings
+.vscode/
+
+# CoinHSL is a personal licence: never commit it (kept next to the repo, see init_nmpc.m)
+CoinHSL*/
+casadi-*-hsl/
+*coinhsl*.zip
+*.autosave

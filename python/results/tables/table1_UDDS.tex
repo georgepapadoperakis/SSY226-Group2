@@ -1,0 +1,41 @@
+\begin{table}[t]
+\centering
+\caption{Free-run RMSE and MAE of the COM against the HFM on UDDS (held-out cycle), for three sources of $\gamma$. Temperatures in $^\circ$C, pressures in bar.}
+\label{tab:freerun_udds}
+\small
+\begin{tabular}{llrrrrrr}
+\toprule
+ & & \multicolumn{2}{c}{$-$5 $^\circ$C} & \multicolumn{2}{c}{$-$7 $^\circ$C} & \multicolumn{2}{c}{$-$10 $^\circ$C} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
+State & $\gamma$ from & RMSE & MAE & RMSE & MAE & RMSE & MAE \\
+\midrule
+T\_mot ($^\circ$C) & Table & \textbf{1.00} & \textbf{0.81} & \textbf{2.38} & \textbf{2.03} & \textbf{2.00} & \textbf{1.61} \\
+ & Net (WLTCHW) & 4.10 & 3.67 & 4.02 & 3.57 & 4.00 & 3.52 \\
+ & Net (3 cycles) & 3.83 & 3.48 & 3.83 & 3.45 & 3.73 & 3.33 \\
+\addlinespace
+T\_inv ($^\circ$C) & Table & \textbf{0.99} & \textbf{0.78} & \textbf{2.39} & \textbf{2.03} & \textbf{2.02} & \textbf{1.61} \\
+ & Net (WLTCHW) & 4.16 & 3.69 & 4.09 & 3.60 & 4.08 & 3.55 \\
+ & Net (3 cycles) & 3.95 & 3.58 & 3.96 & 3.56 & 3.88 & 3.45 \\
+\addlinespace
+T\_dcdc ($^\circ$C) & Table & \textbf{0.95} & \textbf{0.78} & \textbf{2.20} & \textbf{1.76} & \textbf{1.83} & \textbf{1.36} \\
+ & Net (WLTCHW) & 4.00 & 3.43 & 3.95 & 3.35 & 3.94 & 3.32 \\
+ & Net (3 cycles) & 3.77 & 3.34 & 3.78 & 3.33 & 3.69 & 3.23 \\
+\addlinespace
+T\_b ($^\circ$C) & Table & \textbf{1.06} & \textbf{0.96} & \textbf{2.14} & \textbf{1.77} & \textbf{1.83} & \textbf{1.51} \\
+ & Net (WLTCHW) & 3.83 & 3.33 & 3.75 & 3.24 & 3.75 & 3.25 \\
+ & Net (3 cycles) & 3.64 & 3.28 & 3.63 & 3.26 & 3.55 & 3.19 \\
+\addlinespace
+T\_cair ($^\circ$C) & Table & 1.66 & 1.57 & 1.68 & 1.58 & 1.10 & \textbf{0.69} \\
+ & Net (WLTCHW) & 1.56 & 1.21 & 1.41 & 1.07 & \textbf{1.09} & 0.72 \\
+ & Net (3 cycles) & \textbf{1.38} & \textbf{1.06} & \textbf{1.29} & \textbf{0.99} & 1.13 & 0.86 \\
+\addlinespace
+p\_in (bar) & Table & \textbf{0.18} & \textbf{0.14} & \textbf{0.13} & \textbf{0.08} & \textbf{0.16} & \textbf{0.13} \\
+ & Net (WLTCHW) & 0.42 & 0.39 & 0.39 & 0.34 & 0.56 & 0.50 \\
+ & Net (3 cycles) & 0.30 & 0.29 & 0.23 & 0.22 & 0.33 & 0.31 \\
+\addlinespace
+p\_out (bar) & Table & \textbf{2.63} & \textbf{1.86} & \textbf{2.01} & \textbf{1.20} & \textbf{1.67} & \textbf{0.98} \\
+ & Net (WLTCHW) & 5.08 & 2.34 & 4.78 & 2.11 & 3.89 & 1.62 \\
+ & Net (3 cycles) & 5.48 & 2.36 & 5.07 & 2.07 & 4.26 & 1.57 \\
+\bottomrule
+\end{tabular}
+\end{table}

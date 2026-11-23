@@ -1,0 +1,21 @@
+% Closed-loop NMPC results, WLTCHW -10 C. Needs \usepackage{booktabs}.
+\begin{table*}[t]
+\centering
+\caption{Closed-loop results on WLTCHW at $-10\,^{\circ}$C (HFM as plant, $N=30$, $\Delta t=1$\,s). Table = interpolation table (paper setup); NN = $\gamma$ network. Paper values from Lokur and Murgovski (Table 2).}
+\label{tab:nmpc_WLTCHW_minus10C}
+\begin{tabular}{l ccccc}
+\toprule
+ & Rule-based & NMPC, table & NMPC, NN 11\,$\gamma$ & NMPC, NN 15\,$\gamma$ & Paper NMPC \\
+ &  & original COM & original COM & fixed COM &  \\
+\midrule
+Total energy (Wh) & 3\,019 & 2\,229 ($-26.2$\,\%) & 2\,928 ($-3.0$\,\%) & 2\,671 ($-11.5$\,\%) & 2180 ($-27.8$\,\%) \\
+Compressor energy (Wh) & 1788 & 1412 & 1492 & 1164 & -- \\
+Heater energy (Wh) & 1194 & 809 & 1417 & 1492 & -- \\
+Mean $T_{\mathrm{cair}}$, 600\,s to end ($^{\circ}$C) & 20.78 & 20.76 & 20.61 & 18.70 & -- \\
+First $T_{\mathrm{cair}}\geq 20\,^{\circ}$C (s) & 852 & 869 & 845 & 2698 & -- \\
+First $T_{\mathrm{cair}}\geq 21\,^{\circ}$C (s) & 1654 & 1080 & 1124 & 3223 & -- \\
+$T_{\mathrm{b}}$ at the end ($^{\circ}$C) & 31.6 & 40.8 & 51.2 & 51.7 & -- \\
+IPOPT time, mean / max (ms) & -- & 276 / 966 & 188 / 383 & 223 / 496 & -- \\
+\bottomrule
+\end{tabular}
+\end{table*}

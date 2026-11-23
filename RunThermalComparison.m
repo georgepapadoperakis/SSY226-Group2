@@ -5,6 +5,7 @@ function RunThermalComparison(varargin)
 %   RunThermalComparison(controller, temps)                original drive cycle (WLTCHW), as before
 %   RunThermalComparison(controller, temps, cycles)
 %   RunThermalComparison(controller, temps, cycles, saveSimlog)
+%   RunThermalComparison(controller, temps, cycles, saveSimlog, comModel)
 %
 %   controller  'rule', 'nmpc' or 'both'
 %   temps       e.g. -10, [-10 -7], or 'all' (0, -5, -7, -10, -12, -15, -20, -25, -30)
@@ -12,6 +13,13 @@ function RunThermalComparison(varargin)
 %               several as {'NEDC','UDDS'}, or 'all'
 %   saveSimlog  true (default) saves the ~375 MB simlog per run; false keeps only the 1-Hz training
 %               data, plots and energy results
+%   comModel    which prediction model the NMPC uses (ignored by the rule-based controller):
+%                 'table'  original COM, 11 tuning parameters from the interpolation table (paper setup)
+%                 'nn11'   original COM, 11 tuning parameters from the gamma network (models/gamma11_original_com)
+%                 'nn15'   fixed COM,    15 tuning parameters from the gamma network (models/gamma15_fixed_com)
+%               Default: COM_MODEL in init_nmpc.m. The name is added to the Results folder, e.g.
+%               Results/run_2026_11_23_16_00_00_WLTCHW_nmpc-nn15/.
+%               RunAllComModels.m runs rule-based + all three in one go.
 %
 %   Examples
 %     RunThermalComparison('rule', 'all', 'all', false)     every temperature on every cycle
@@ -69,16 +77,21 @@ end
     %% ── Parse inputs ─────────────────────────────────────────────────────
     cycles = {'WLTCHW'};
     saveSimlog = true;
+    comModel = '';
     if nargin == 0
         [ctrl_sel, temp_sel, cycles] = interactive_menu();
-    elseif nargin >= 2 && nargin <= 4
+    elseif nargin >= 2 && nargin <= 5
         ctrl_sel = varargin{1};
         temp_sel = varargin{2};
         if nargin >= 3 && ~isempty(varargin{3}), cycles = parse_cycles(varargin{3}); end
-        if nargin >= 4, saveSimlog = logical(varargin{4}); end
+        if nargin >= 4 && ~isempty(varargin{4}), saveSimlog = logical(varargin{4}); end
+        if nargin >= 5, comModel = lower(char(varargin{5})); end
     else
         error('RunThermalComparison:badInput', ...
-              'Usage: RunThermalComparison() or RunThermalComparison(controller, temps [, cycles [, saveSimlog]])');
+              'Usage: RunThermalComparison() or RunThermalComparison(controller, temps [, cycles [, saveSimlog [, comModel]]])');
+    end
+    if ~isempty(comModel) && ~ismember(comModel, {'table', 'nn11', 'nn15'})
+        error('RunThermalComparison:badModel', 'comModel must be ''table'', ''nn11'' or ''nn15''.');
     end
 
     ctrl_sel = lower(string(ctrl_sel));
@@ -116,7 +129,7 @@ end
             numel(cycles), numel(temps), numel(controllers), numel(cycles) * numel(temps) * numel(controllers));
     fprintf('[Plan] cycles: %s | temperatures: %s\n', strjoin(cycles, ', '), mat2str(temps));
     for i = 1:numel(cycles)
-        run_cycle(MODEL, repoRoot, controllers, temps, cycles{i}, saveSimlog, i, numel(cycles));
+        run_cycle(MODEL, repoRoot, controllers, temps, cycles{i}, saveSimlog, i, numel(cycles), comModel);
     end
 end
 
@@ -124,15 +137,22 @@ end
 %% ═════════════════════════════════════════════════════════════════════════
 %% All runs for one drive cycle (one Results folder)
 %% ═════════════════════════════════════════════════════════════════════════
-function run_cycle(MODEL, repoRoot, controllers, temps, cycle, saveSimlog, i_cycle, n_cycles)
+function run_cycle(MODEL, repoRoot, controllers, temps, cycle, saveSimlog, i_cycle, n_cycles, comModel)
 
     fprintf('\n####################################################\n');
     fprintf('  Drive cycle %d/%d: %s\n', i_cycle, n_cycles, cycle);
     fprintf('####################################################\n');
 
     %% ── Output folder with timestamp ────────────────────────────────────
+    % Folder name says what was run: run_<time>_WLTCHW_rule, run_<time>_WLTCHW_nmpc-nn15, run_<time>_WLTCHW_rule+nmpc-table
+    if ismember('nmpc', controllers)
+        if isempty(comModel), comModel = default_com_model(repoRoot); end
+        tag = strjoin(strrep(controllers, 'nmpc', ['nmpc-' comModel]), '+');
+    else
+        tag = 'rule';
+    end
     timestamp = datestr(now, 'yyyy_mm_dd_HH_MM_SS');
-    outdir = fullfile(repoRoot, 'Results', ['run_' timestamp '_' cycle]);   % anchored to repo, not pwd
+    outdir = fullfile(repoRoot, 'Results', ['run_' timestamp '_' cycle '_' tag]);   % anchored to repo, not pwd
     if ~exist(outdir, 'dir')
         mkdir(outdir);
     end
@@ -168,10 +188,17 @@ function run_cycle(MODEL, repoRoot, controllers, temps, cycle, saveSimlog, i_cyc
             % 2) Switch controller
             switch_controller(MODEL, ctrl);
 
-            % 3) Clear warm-start cache so each run is independent
+            % 3) NMPC: load the chosen prediction model and clear the warm-start cache so each run is independent.
+            %    init_nmpc is run here every time: the Simulink model only runs it when the model is first loaded,
+            %    so without this a changed COM_MODEL would be ignored in an open MATLAB session.
               if strcmpi(ctrl, 'nmpc')
-                    cache = fullfile(pwd, 'nmpc_warm_cache.mat');
-                    if isfile(cache), delete(cache); end
+                    assignin('base', 'COM_MODEL', comModel);      % init_nmpc uses this value
+                    evalin('base', 'init_nmpc');
+                    for cache = {fullfile(pwd, 'nmpc_warm_cache.mat'), fullfile(pwd, 'nmpc_warm_cache_v4.mat'), ...
+                                 fullfile(repoRoot, 'nmpc_warm_cache_v4.mat')}
+                        if isfile(cache{1}), delete(cache{1}); end
+                    end
+                    clear gamma_network
                 
                     clear MPCController_step_coreLQRNew_v4
                     clear MPCController_step_coreLQRNew_v3
@@ -1046,5 +1073,18 @@ function cycles = parse_cycles(arg)
     cycles = cellstr(string(arg));
     for k = 1:numel(cycles)
         cycles{k} = drive_cycle_list(cycles{k}).handle;   % validates, maps 'DriveCycle' -> 'WLTCHW'
+    end
+end
+
+
+%% ═════════════════════════════════════════════════════════════════════════
+%% Default prediction model: the COM_MODEL = '...' line in init_nmpc.m (the file, not an old workspace value)
+%% ═════════════════════════════════════════════════════════════════════════
+function m = default_com_model(repoRoot)
+    m = 'nn15';
+    try
+        tok = regexp(fileread(fullfile(repoRoot, 'init_nmpc.m')), 'COM_MODEL\s*=\s*''(\w+)''', 'tokens', 'once');
+        if ~isempty(tok), m = tok{1}; end
+    catch
     end
 end

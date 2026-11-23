@@ -26,7 +26,7 @@ persistent built ...
     w_ySlack w_du_slack w_stateSlack_mot w_stateSlack_inv ...
     w_stateSlack_dcdc w_stateSlack_bat w_stateSlack_cab ...
     du_max_s lambda_du int_offset int_e_prev ...
-    K_lqr_last xT_lqr_last uT_lqr_last
+    K_lqr_last xT_lqr_last uT_lqr_last useGammaNet
 %% ── Build once ───────────────────────────────────────────────────────────
 if isempty(built)
 
@@ -34,6 +34,19 @@ if isempty(built)
     Stuned    = evalin('base', 'Stuned');
 
     [F, Uord, ~, packParams] = create_dynamics_nmpcNew();
+    % COM_FIXES (init_nmpc.m): fixed COM with 15 tuning parameters, set by the gamma network instead of the table
+    % USE_GAMMANET (init_nmpc.m): original COM with the 11-gamma network instead of the table
+    comFixesOn = false; useNetOrig = false;
+    try, comFixesOn = logical(evalin('base', 'COM_FIXES')); catch, end
+    try, useNetOrig = logical(evalin('base', 'USE_GAMMANET')); catch, end
+    useGammaNet = comFixesOn || useNetOrig;
+    if comFixesOn
+        fprintf('[coreLQR] COM_FIXES on: fixed COM, gamma from gamma_network.m (not prepParaVec)\n');
+    elseif useGammaNet
+        fprintf('[coreLQR] USE_GAMMANET on: original COM, 11 gamma from gamma_network.m (not prepParaVec)\n');
+    else
+        fprintf('[coreLQR] Original COM, gamma from the interpolation table (prepParaVec)\n');
+    end
     idx_cmdPS = get_idx_cmdPS(Uord);
 
     N  = double(evalin('base', 'N'));
@@ -428,7 +441,7 @@ if isempty(built)
     opts.ipopt.acceptable_obj_change_tol  = 1e-4;
 
     opts.ipopt.hessian_approximation = 'exact';
-    opts.ipopt.linear_solver         = 'ma97';
+    opts.ipopt.linear_solver         = ipopt_linear_solver();   % ma97 if CoinHSL found (init_nmpc.m), else mumps
 
     opts.ipopt.mu_strategy = 'adaptive';
     opts.ipopt.mu_oracle   = 'quality-function';
@@ -544,7 +557,19 @@ heatk.superHeat = 2;
 tau_fan = 5.0;
 alpha   = exp(-dt / tau_fan);
 
-tuneS       = prepParaVec(x_meas_pk, Tamb_C, Stuned.tunedVariables);
+if useGammaNet
+    % gamma network: inputs = measured state, ambient, heat loads now and the input plan for the coming 30 s
+    % (previous optimal plan shifted by one step; before the first solve: last input held)
+    if isempty(prev_w_opt)
+        Uplan = repmat(u_last(:), 1, N);
+    else
+        Uprev = Su * reshape(prev_w_opt(nX+(1:nU)), nu, N);
+        Uplan = [Uprev(:, 2:end), Uprev(:, end)];
+    end
+    tuneS = gamma_network(x_meas, Tamb_C, Uplan, heatk.motQ(1), heatk.invQ(1), heatk.batImeas(1));
+else
+    tuneS = prepParaVec(x_meas_pk, Tamb_C, Stuned.tunedVariables);
+end
 [ctrl, est] = thermalLogicAndEstimation(x_meas_pk, inputInit, heatk);
 est.speed   = heatk.speed;
 
@@ -877,6 +902,15 @@ function w0_next = shift_warm_start_full(prev_w_opt, w0, nx, nu, N, nX, nU, ...
     w0_next(idxSdu) = Sdu_shift(:);
 end
 
+function s = ipopt_linear_solver()
+% Linear solver chosen in init_nmpc.m (ma97 when CoinHSL is found next to the repo, otherwise mumps).
+    s = 'ma97';
+    try
+        s = evalin('base', 'IPOPT_LINEAR_SOLVER');
+    catch
+    end
+end
+
 function idx = get_idx_cmdPS(Uord)
     names = [Uord.estimatedParams(:); Uord.controlOut(:); Uord.tunePara(:)];
     idx   = find(strcmp(names,'cmdParallelSerial'), 1);
@@ -1026,7 +1060,7 @@ function [xT, uT, P, Kt] = compute_terminal_data(F, nx, nu, h, M, pkN, ...
         optsT.print_time           = false;
         optsT.error_on_fail        = false;
         optsT.ipopt.print_level    = 0;
-        optsT.ipopt.linear_solver  = 'ma97';
+        optsT.ipopt.linear_solver  = ipopt_linear_solver();
         optsT.ipopt.max_iter       = 150;
         optsT.ipopt.tol            = 1e-6;
         optsT.ipopt.acceptable_tol = 1e-2;

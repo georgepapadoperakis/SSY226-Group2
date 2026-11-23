@@ -84,3 +84,5 @@ pNames = {'p1','p2','p3','p4','p5','p6','p7','p8','p9','p10','p11'};
 for i = 1:11
     parameter.(pNames{i}) = p(i);
 end
+% p12 (gamma12, suction density): not in the interpolation table -> 0 = original COM behaviour.
+parameter.p12 = 0;

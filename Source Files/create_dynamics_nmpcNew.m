@@ -51,8 +51,20 @@ U_ordering.estimatedParams = { ...
     'fanRpm_prev'
 };
 
-% ---------- Tuning vector (p1..p11) as parameters ----------
-U_ordering.tunePara = {'p1','p2','p3','p4','p5','p6','p7','p8','p9','p10','p11'};
+% ---------- Tuning vector as parameters ----------
+% p12 = gamma12 (pressure-dependent suction volume, see compressorMdl). 0 = original COM.
+% COM fixes (base-workspace switch COM_FIXES, set in init_nmpc.m): 15 parameters, p13 = HTX UA,
+% p14 = motor -> coolant UA, p15 = inverter -> coolant UA. With 15 parameters dynamics_mexfreeNew.m uses the
+% fixed COM (front HX, condenser, cabin, heater, UA and gamma rescaling); with 12 it is the original COM.
+U_ordering.tunePara = {'p1','p2','p3','p4','p5','p6','p7','p8','p9','p10','p11','p12'};
+comFixes = false;
+try
+    comFixes = logical(evalin('base', 'COM_FIXES'));
+catch
+end
+if comFixes
+    U_ordering.tunePara = [U_ordering.tunePara, {'p13','p14','p15'}];
+end
 
 % Sizes
 nu = numel(U_ordering.inputSignal);
@@ -129,7 +141,13 @@ for k = 1:numel(U_ordering.controlOut)
     lst{end+1,1} = ctrl.(U_ordering.controlOut{k});
 end
 for k = 1:numel(U_ordering.tunePara)
-    lst{end+1,1} = tune.(U_ordering.tunePara{k});
+    if isfield(tune, U_ordering.tunePara{k})
+        lst{end+1,1} = tune.(U_ordering.tunePara{k});
+    elseif k <= 12
+        lst{end+1,1} = 0;   % e.g. p12 missing (interpolation table has only p1..p11) -> original COM
+    else
+        lst{end+1,1} = 1;   % p13..p15 missing -> nominal (1) UA multipliers
+    end
 end
 pvec = vertcat(lst{:});
 end
