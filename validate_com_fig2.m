@@ -37,7 +37,7 @@ if nargin < 2 || isempty(temps), temps = [-10, -7, -5]; end
 if ~evalin('base', 'exist(''Stuned'',''var'')'), init_nmpc(); end
 Stuned = evalin('base', 'Stuned');
 TV = Stuned.tunedVariables;
-[F, ~, ~, packParams] = create_dynamics_nmpcNew();
+[F, ~, ~, packParams] = create_dynamics_nmpcNew(17);
 V = load('ElectricVehicleThermalManagementWithHeatPumpVehicleSpeed.mat');
 speedTs = V.DriveCycle{1};
 

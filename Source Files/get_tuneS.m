@@ -30,7 +30,9 @@ function tuneS = get_tuneS(x_meas, Tamb_C, batI, speed, TV)
 %     env_lo,env_hi (optional) feature envelope for the OOD fallback
 %#ok<*AGROW>
 
-persistent mode net glog k ibuf
+persistent mode net glog k ibuf n_out
+
+P12_17_NOM = [0.05; 1.0; 1.0; 0.9; 1.0; 1.0];
 
 if isempty(mode)
     mode = 'interp';
@@ -40,10 +42,10 @@ if isempty(mode)
         end
     catch
     end
-    glog = zeros(0, 25);
     k = 0;
     ibuf = [];
     net = [];
+    n_out = 17;
     if ~strcmpi(mode, 'interp')
         f = ['nn_' mode '.mat'];
         if ~isfile(f) && isempty(which(f))
@@ -54,11 +56,20 @@ if isempty(mode)
         net.act = char(net.act);
         if ~isfield(net, 'out_transform'), net.out_transform = 'none'; end
         net.out_transform = char(net.out_transform);
-        fprintf('[get_tuneS] Scheduler: neural network %s (%d inputs, %d layers, act=%s)\n', ...
-                f, numel(net.features), double(net.n_layers), net.act);
+        if isfield(net, 'n_params')
+            net_np = double(net.n_params(1));
+        else
+            L = double(net.n_layers);
+            net_np = size(net.(sprintf('W%d', L)), 1);
+        end
+        net.n_params_actual = net_np;
+        n_out = max(17, net_np);
+        fprintf('[get_tuneS] Scheduler: neural network %s (%d inputs, %d layers, n_params=%d, act=%s)\n', ...
+                f, numel(net.features), double(net.n_layers), net_np, net.act);
     else
         fprintf('[get_tuneS] Scheduler: linear interpolation (prepParaVec)\n');
     end
+    glog = zeros(0, 3 + 2 * n_out);
 end
 
 k = k + 1;
@@ -67,7 +78,8 @@ k = k + 1;
 ibuf(end+1) = batI(1);
 if numel(ibuf) > 120, ibuf(1) = []; end
 batI_avg = mean(ibuf);
-p_interp = struct2vec(prepParaVec(x_meas, Tamb_C, TV));
+p_interp_11 = struct2vec(prepParaVec(x_meas, Tamb_C, TV));
+p_interp = [p_interp_11(:); P12_17_NOM];
 ood = 0;
 
 if strcmpi(mode, 'interp')
@@ -77,15 +89,21 @@ else
     if isfield(net, 'env_lo') && any(feat < net.env_lo(:) | feat > net.env_hi(:))
         p = p_interp; ood = 1;
     else
-        p = nn_forward(net, feat);
-        if ~all(isfinite(p)), p = p_interp; ood = 1; end
+        p_raw = nn_forward(net, feat);
+        if ~all(isfinite(p_raw))
+            p = p_interp; ood = 1;
+        elseif numel(p_raw) < n_out
+            p = [p_raw(:); P12_17_NOM(1:(n_out - numel(p_raw)))];
+        else
+            p = p_raw(1:n_out);
+        end
     end
 end
 
 glog(end+1, :) = [k, Tamb_C, ood, p(:).', p_interp(:).'];
 assignin('base', 'gamma_log', glog);
 
-for i = 1:11
+for i = 1:n_out
     tuneS.(sprintf('p%d', i)) = p(i);
 end
 end

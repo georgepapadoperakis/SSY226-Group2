@@ -1,7 +1,19 @@
-Results/
+# Generated simulation & evaluation results (contains large local datasets)
 Results/
 
-# Python bytecode and cache
+# Reference documents & local dumps
+agy/
+*_export.mat
+*_signals.txt
+matlab_workspace.mat
+
+# MATLAB / Simulink caches & autosaves
+*.asv
+*.slxc
+slprj/
+
+# Python bytecode & Jupyter checkpoints
 __pycache__/
 *.py[cod]
 *$py.class
+.ipynb_checkpoints/

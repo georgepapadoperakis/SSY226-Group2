@@ -1,37 +1,80 @@
-# com_physics.py
+"""Differentiable PyTorch COM physics matching Source Files/dynamics_mexfreeNew.m (11 or 17 params)."""
+
+from __future__ import annotations
+
 import math
+from typing import Dict
+
 import torch
 import torch.nn as nn
 
+
 class COMPhysics(nn.Module):
     """
-    Exact 1-to-1 differentiable PyTorch translation of dynamics_mexfreeNew.m
-    with strictly positive clamping on Reynolds/Prandtl numbers to prevent NaN gradients.
+    1-to-1 differentiable PyTorch implementation of dynamics_mexfreeNew.m.
+
+    Supports both:
+      - 11-parameter legacy mode (exact parity with original dynamics_mexfreeNew.m)
+      - 17-parameter Tier-1 expanded mode:
+          p12: dcdcMdl thermal derivative scaling (replaces hardcoded 0.05)
+          p13: innerCondenserMdl NTU area multiplier
+          p14: compressorMdl massFlowCorrection multiplier
+          p15: htxMdl & local_htx_affine NTU correction factor (replaces hardcoded 0.9)
+          p16: heaterMdl & local_heater_affine efficiency multiplier
+          p17: cabMdl ambient-to-interior conductance q_env2int multiplier
+        Plus loop-consistency fix: local_branch_affine_bat uses P[:, 6] (p7) in expanded mode.
     """
+
     def __init__(self):
         super().__init__()
         self.NTU_MAX = 10.0
 
-    def forward(self, x, u, est, ctrl, P):
-        # --- Unpack states ---
-        motT       = x[:, 0]
-        invT       = x[:, 1]
-        dcdcT      = x[:, 2]
-        batSoc     = x[:, 3]
-        batT       = x[:, 4]
-        compPinPa  = torch.clamp(x[:, 5], min=0.2e5, max=30.0e5)
-        compPoutPa = torch.clamp(x[:, 6], min=0.5e5, max=60.0e5)
-        cabIntT    = x[:, 7]
-        cabAirT    = x[:, 8]
+    def forward(
+        self,
+        x: torch.Tensor,
+        u: torch.Tensor,
+        est: Dict[str, torch.Tensor],
+        ctrl: Dict[str, torch.Tensor],
+        P: torch.Tensor,
+    ) -> torch.Tensor:
+        n_params = P.shape[1]
+        is_expanded = n_params >= 17
 
-        # --- Unpack inputs (clamp physical speeds/flows >= 0 to prevent negative Re) ---
-        compNrpm    = torch.clamp(u[:, 0], min=0.0)
-        cabAirMfIn  = torch.clamp(u[:, 1], min=0.0) + 1e-3
+        if is_expanded:
+            p12 = P[:, 11]
+            p13 = P[:, 12]
+            p14 = P[:, 13]
+            p15 = P[:, 14]
+            p16 = P[:, 15]
+            p17 = P[:, 16]
+            bat_ntu_affine = P[:, 6]
+        else:
+            ones = torch.ones_like(P[:, 0])
+            p12 = 0.05 * ones
+            p13 = ones
+            p14 = ones
+            p15 = 0.9 * ones
+            p16 = ones
+            p17 = ones
+            bat_ntu_affine = 0.1 * ones
+
+        # --- Unpack states ---
+        motT = x[:, 0]
+        invT = x[:, 1]
+        dcdcT = x[:, 2]
+        batT = x[:, 4]
+        compPinPa = torch.clamp(x[:, 5], min=0.2e5, max=30.0e5)
+        compPoutPa = torch.clamp(x[:, 6], min=0.4e5, max=60.0e5)
+        cabIntT = x[:, 7]
+        cabAirT = x[:, 8]
+
+        # --- Unpack inputs ---
+        compNrpm = torch.clamp(u[:, 0], min=0.0)
+        cabAirMfIn = torch.clamp(u[:, 1], min=0.0) + 1e-3
         motPumpNrpm = torch.clamp(u[:, 2], min=0.0)
         batPumpNrpm = torch.clamp(u[:, 3], min=0.0)
-        heaterPwr   = torch.clamp(u[:, 4], min=0.0)
-        radFanrpm   = torch.clamp(u[:, 5], min=0.0)
-        batImeas    = est["batImeas"] + 1e-3
+        heaterPwr = torch.clamp(u[:, 4], min=0.0)
+        batImeas = est["batImeas"] + 1e-3
 
         # =====================================================================
         # 1. pumpMdl
@@ -49,7 +92,7 @@ class COMPhysics(nn.Module):
         # =====================================================================
         compDispM3perRev = 80e-6
         isenEff = 0.65
-        massFlowCorrection = 0.12
+        massFlowCorrection = 0.12 * p14
 
         compNrpm_safe = compNrpm + 1e-5
         h_in = est["compHin"]
@@ -58,7 +101,7 @@ class COMPhysics(nn.Module):
 
         p_in_floor = 0.3e5
         eps_pFloor = 1e6
-        compPinSafe = 0.5 * (compPinPa + p_in_floor + torch.sqrt((compPinPa - p_in_floor)**2 + eps_pFloor))
+        compPinSafe = 0.5 * (compPinPa + p_in_floor + torch.sqrt((compPinPa - p_in_floor) ** 2 + eps_pFloor))
 
         pressureRatio = compPoutPa / compPinSafe
         volEff_calc = -0.0286 * pressureRatio + 1.0286
@@ -81,7 +124,7 @@ class COMPhysics(nn.Module):
         airArea_ic = 0.04
         totalHxArea_ic = 1.1088 + 0.9952
         wallThermalResistance_ic = 4.1868e-07
-        ntuAreaFactor_ic = 18.0 * 40.0
+        ntuAreaFactor_ic = 18.0 * 40.0 * p13
         refD_ic = 0.0100
         airD_ic = 0.0190
 
@@ -93,8 +136,8 @@ class COMPhysics(nn.Module):
         refPr_ic = torch.clamp((est["innerCondRefCp"] * est["innerCondRefMu"]) / (est["innerCondRefK"] + 1e-6), min=1e-8)
         airPr_ic = torch.clamp((est["cabAirCp"] * est["cabAirMu"]) / (est["cabAirK"] + 1e-6), min=1e-8)
 
-        refNu_ic = 0.023 * (refRe_ic**0.8) * (refPr_ic**0.33)
-        airNu_ic = 0.023 * (airRe_ic**0.8) * (airPr_ic**0.33)
+        refNu_ic = 0.023 * (refRe_ic ** 0.8) * (refPr_ic ** 0.33)
+        airNu_ic = 0.023 * (airRe_ic ** 0.8) * (airPr_ic ** 0.33)
         refU_ic = (refNu_ic * est["innerCondRefK"]) / (refD_ic + 1e-6)
         airU_ic = (airNu_ic * est["cabAirK"]) / (airD_ic + 1e-6)
 
@@ -124,7 +167,7 @@ class COMPhysics(nn.Module):
         h_out_ic = est["refHsatLiqHighP"] + est["innerCondRefCp"] * (refToutK_ic - est["refTsatLiqHighPK"])
 
         # =====================================================================
-        # 4. hpExvMdl & 5. condEvapMdl
+        # 4. hpExvMdl & 5. condEvapMdl (airMf = 0 -> qActual_ce = 0)
         # =====================================================================
         cmdExvHp = ctrl["cmdExvHeatpump"]
         refToutK_hpExv = est["refTsatLiqLowPK"] * cmdExvHp + refToutK_ic * (1.0 - cmdExvHp)
@@ -158,20 +201,20 @@ class COMPhysics(nn.Module):
         refPr_hx = torch.clamp((est["condEvapRefCp"] * est["condEvapRefMu"]) / (est["condEvapRefK"] + 1e-6), min=1e-8)
         clntPr_hx = torch.clamp((clntCp * clntMu) / (clntK + 1e-6), min=1e-8)
 
-        refNu_hx = 0.023 * (refRe_hx**0.8) * (refPr_hx**0.33)
-        clntNu_hx = 0.023 * (clntRe_hx**0.8) * (clntPr_hx**0.33)
+        refNu_hx = 0.023 * (refRe_hx ** 0.8) * (refPr_hx ** 0.33)
+        clntNu_hx = 0.023 * (clntRe_hx ** 0.8) * (clntPr_hx ** 0.33)
         h_ref_hx = (refNu_hx * est["condEvapRefK"]) / (refD_hx + 1e-6)
         h_clnt_hx = (clntNu_hx * clntK) / (clntD_hx + 1e-6)
 
         thermRes_hx = (1.0 / (h_ref_hx * totalHxArea_hx + 1e-6)) + (1.0 / (h_clnt_hx * totalHxArea_hx + 1e-6))
         UA_hx = 1.0 / (thermRes_hx + 1e-6)
         c_clnt_mot = m_mot * clntCp
-        NTU_hx = self.NTU_MAX * torch.tanh((0.9 * UA_hx / (c_clnt_mot + 1e-6)) / self.NTU_MAX)
+        NTU_hx = self.NTU_MAX * torch.tanh((p15 * UA_hx / (c_clnt_mot + 1e-6)) / self.NTU_MAX)
         A_htx = 1.0 - torch.exp(-NTU_hx)
         a_htx = 1.0 - A_htx
         b_htx = A_htx * refToutK_ce
 
-        dT_heat = (0.85 * heaterPwr) / (1.5 * m_tot_bat * clntCp + 1e-6)
+        dT_heat = (p16 * 0.85 * heaterPwr) / (1.5 * m_tot_bat * clntCp + 1e-6)
         a_T2_T0 = a_htx
         b_T2 = b_htx + dT_heat
 
@@ -189,10 +232,10 @@ class COMPhysics(nn.Module):
             S = eff + k_cond_eff
             return 1.0 - S, S * T_comp
 
-        a_bat, b_bat   = branch_affine(m_bat,  clntK, 200.0, 0.7,   0.1, batT)
-        a_dcdc, b_dcdc = branch_affine(m_dcdc, 0.254, 1.0,   0.245, 1.0, dcdcT)
-        a_mot, b_mot   = branch_affine(m_mot,  clntK, 6.0,   0.254, 1.0, motT)
-        a_inv, b_inv   = branch_affine(m_mot,  clntK, 6.0,   0.254, 0.1, invT)
+        a_bat, b_bat = branch_affine(m_bat, clntK, 200.0, 0.7, bat_ntu_affine, batT)
+        a_dcdc, b_dcdc = branch_affine(m_dcdc, 0.254, 1.0, 0.245, 1.0, dcdcT)
+        a_mot, b_mot = branch_affine(m_mot, clntK, 6.0, 0.254, 1.0, motT)
+        a_inv, b_inv = branch_affine(m_mot, clntK, 6.0, 0.254, 0.1, invT)
 
         w_bat = m_bat / (m_bat + m_dcdc + 1e-12)
         w_dcdc = 1.0 - w_bat
@@ -210,7 +253,7 @@ class COMPhysics(nn.Module):
         htxClntTinK = beta / (1.0 - alpha + 1e-6)
 
         # =====================================================================
-        # 7. htxMdl, chillerMdl, heaterMdl
+        # 7. htxMdl & heaterMdl
         # =====================================================================
         qMax_hx = c_clnt_mot * (htxClntTinK - refToutK_ce)
         qActual_hx = A_htx * qMax_hx
@@ -235,16 +278,19 @@ class COMPhysics(nn.Module):
         qCond_bat = (0.7 * hxAreaFactor / clntChannelD) * (batT - clntTinK_bat)
         qTotal_bat = qConv_bat + qCond_bat
 
-        capacityAh = torch.clamp(0.0075 * (batT**2) - 4.5401 * batT + 962.67, min=10.0)
-        p00, p10, p01 = 0.5345, -0.00348, -0.02749
-        p20, p11, p02 = 5.748e-06, 7.589e-05, 0.02773
-        p21, p12, p03 = 9.909e-08, -0.0001321, 0.008301
-        res_poly = (p00 + p10*batT + p01*batSoc + p20*(batT**2) + p11*batT*batSoc + p02*(batSoc**2)
-                    + p21*(batT**2)*batSoc + p12*batT*(batSoc**2) + p03*(batSoc**3))
-        resistanceOhm = 0.5 * (res_poly + 1e-8 + torch.sqrt((res_poly - 1e-8)**2 + 1e-18))
+        capacityAh = torch.clamp(0.0075 * (batT ** 2) - 4.5401 * batT + 962.67, min=10.0)
+        c00, c10, c01 = 0.5345, -0.00348, -0.02749
+        c20, c11, c02 = 5.748e-06, 7.589e-05, 0.02773
+        c21, c12, c03 = 9.909e-08, -0.0001321, 0.008301
+        res_poly = (
+            c00 + c10 * batT + c01 * x[:, 3]
+            + c20 * (batT ** 2) + c11 * batT * x[:, 3] + c02 * (x[:, 3] ** 2)
+            + c21 * (batT ** 2) * x[:, 3] + c12 * batT * (x[:, 3] ** 2) + c03 * (x[:, 3] ** 3)
+        )
+        resistanceOhm = 0.5 * (res_poly + 1e-8 + torch.sqrt((res_poly - 1e-8) ** 2 + 1e-18))
 
         batSoc_dt = -batImeas / (capacityAh * 4.0 * (44.0 * 20.0) + 1e-6)
-        qJoule = 70.0 * (batImeas**2) * resistanceOhm
+        qJoule = 70.0 * (batImeas ** 2) * resistanceOhm
         thermalMass_bat = 0.75 * batMassKg * batCp
         batT_dt = P[:, 2] * (0.98 * qJoule - qTotal_bat) / (thermalMass_bat + 1e-6)
         batClntToutK = clntTinK_bat + qTotal_bat / (c_clnt_bat + 1e-6)
@@ -262,7 +308,7 @@ class COMPhysics(nn.Module):
         qConv_dcdc = eff_dcdc * c_clnt_dcdc * (dcdcT - clntTinK_bat)
         qCond_dcdc = (0.245 * hxAreaFactor / clntChannelD) * (dcdcT - clntTinK_bat)
         qRemoved_dcdc = qConv_dcdc + qCond_dcdc
-        dcdcT_dt = 0.05 * (est["dcdcQmeas"] - qRemoved_dcdc) / (0.1 * 1.0 * 447.0 + 1e-6)
+        dcdcT_dt = p12 * (est["dcdcQmeas"] - qRemoved_dcdc) / (0.1 * 1.0 * 447.0 + 1e-6)
         dcdcClntToutK = clntTinK_bat + (qRemoved_dcdc / (c_clnt_dcdc + 1e-6)) * gate_dcdc
 
         # =====================================================================
@@ -300,11 +346,11 @@ class COMPhysics(nn.Module):
         # =====================================================================
         R_glass = 0.01217 * (1.0 / (40.0 * 3.5) + 0.002 / (0.96 * 3.5))
         R_doors = 0.15076 * (1.0 / (40.0 * 4.0) + 0.03 / (0.08 * 4.0))
-        R_roof  = 0.63668 * (1.0 / (40.0 * 2.0) + 0.02 / (0.08 * 2.0))
+        R_roof = 0.63668 * (1.0 / (40.0 * 2.0) + 0.02 / (0.08 * 2.0))
         R_total_env2int = R_glass + R_doors + R_roof
         thermalMass_int = 36.4 * 840.0 + 75.0 * 500.0 + 30.0 * 500.0
 
-        q_env2int = (est["envT"] - cabIntT) / (R_total_env2int + 1e-6)
+        q_env2int = p17 * (est["envT"] - cabIntT) / (R_total_env2int + 1e-6)
         q_air2int = (cabAirT - cabIntT) / (R_total_env2int + 1e-6)
         cabIntT_dt = (P[:, 0] * 42237.0 * (q_env2int + q_air2int)) / (2287.85 * thermalMass_int + 1e-6)
 
@@ -334,15 +380,36 @@ class COMPhysics(nn.Module):
         sig_D11 = torch.sigmoid(torch.clamp(100.0 * (torch.abs(D11) - 1e-4), min=-50.0, max=50.0))
         sig_D22 = torch.sigmoid(torch.clamp(100.0 * (torch.abs(D22) - 1e-4), min=-50.0, max=50.0))
 
-        compPin_dt  = (P[:, 10] * f1 / (500.0 * D11 + 1e-6)) * sig_D11
-        compPout_dt = (P[:, 9]  * f2 / (1.0   * D22 + 1e-6)) * sig_D22
+        compPin_dt = (P[:, 10] * f1 / (500.0 * D11 + 1e-6)) * sig_D11
+        compPout_dt = (P[:, 9] * f2 / (1.0 * D22 + 1e-6)) * sig_D22
 
         return torch.stack([
             motT_dt, invT_dt, dcdcT_dt, batSoc_dt, batT_dt,
-            compPin_dt, compPout_dt, cabIntT_dt, cabAirT_dt
+            compPin_dt, compPout_dt, cabIntT_dt, cabAirT_dt,
         ], dim=-1)
 
-    def step_rk4(self, x, u, est, ctrl, P, dt=1.0):
+    def step_heun(
+        self,
+        x: torch.Tensor,
+        u: torch.Tensor,
+        est: Dict[str, torch.Tensor],
+        ctrl: Dict[str, torch.Tensor],
+        P: torch.Tensor,
+        dt: float = 1.0,
+    ) -> torch.Tensor:
+        k1 = self.forward(x, u, est, ctrl, P)
+        k2 = self.forward(x + dt * k1, u, est, ctrl, P)
+        return x + 0.5 * dt * (k1 + k2)
+
+    def step_rk4(
+        self,
+        x: torch.Tensor,
+        u: torch.Tensor,
+        est: Dict[str, torch.Tensor],
+        ctrl: Dict[str, torch.Tensor],
+        P: torch.Tensor,
+        dt: float = 1.0,
+    ) -> torch.Tensor:
         k1 = self.forward(x, u, est, ctrl, P)
         k2 = self.forward(x + 0.5 * dt * k1, u, est, ctrl, P)
         k3 = self.forward(x + 0.5 * dt * k2, u, est, ctrl, P)

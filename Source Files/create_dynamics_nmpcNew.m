@@ -1,4 +1,7 @@
-function [F, U_ordering, packU, packParams] = create_dynamics_nmpcNew()
+function [F, U_ordering, packU, packParams] = create_dynamics_nmpcNew(n_tune)
+if nargin < 1 || isempty(n_tune)
+    n_tune = 11;
+end
 
 
 % import casadi.*
@@ -51,8 +54,8 @@ U_ordering.estimatedParams = { ...
     'fanRpm_prev'
 };
 
-% ---------- Tuning vector (p1..p11) as parameters ----------
-U_ordering.tunePara = {'p1','p2','p3','p4','p5','p6','p7','p8','p9','p10','p11'};
+% ---------- Tuning vector (p1..pN) as parameters ----------
+U_ordering.tunePara = arrayfun(@(i) sprintf('p%d', i), 1:n_tune, 'UniformOutput', false);
 
 % Sizes
 nu = numel(U_ordering.inputSignal);

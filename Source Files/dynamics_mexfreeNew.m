@@ -1,26 +1,30 @@
 function [xdot,mdlOut_sym,J] = dynamics_mexfreeNew(x, u, p)
 
     [mdlInput, estimatedParams, controlOut, P] = build_runtime_context(x, u, p);
+    isExpanded = (numel(P) >= 17);
+    if ~isExpanded
+        P = [P(:); 0.05; 1.0; 1.0; 0.9; 1.0; 1.0];
+    end
 
     % --- 2) Component map / accumulator ---
     cmp = struct();
 
     % ---- Flow: coolant/refrigerant path + auxiliaries ----
     cmp = pumpMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp);
+    cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp, P);
+    cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp, P);
     cmp = hpExvMdl(mdlInput, estimatedParams, controlOut, cmp);
     cmp = condEvapMdl(mdlInput, estimatedParams, controlOut, cmp);
 
     % Loop solver (sets mdlInput.u.htxClntTinK)
-    [T0, ~, ~] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut);
+    [T0, ~, ~] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut, P, isExpanded);
     mdlInput.u.htxClntTinK = T0;
 
     cmp = htxMdl(mdlInput, estimatedParams, controlOut, cmp, P);
     cmp = evapExv(mdlInput, estimatedParams, controlOut, cmp);
     cmp = evaporatorMdl(mdlInput, estimatedParams, controlOut, cmp);
     cmp = chillerMdl(mdlInput, estimatedParams, controlOut, cmp);
-    cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp);
+    cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp, P);
 
     % ---- Electric powertrain & cabin ----
     cmp = batMdl(mdlInput, estimatedParams, controlOut, cmp, P);
@@ -127,7 +131,7 @@ end
 % ======================================================================
 % Thermal components
 % ======================================================================
-function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut)
+function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimatedParams, controlOut, P, isExpanded)
     % Flows & cp
     clntCp = estimatedParams.clntCp;
     m_mot  = cmp.motPump.output.clntMf;
@@ -137,13 +141,13 @@ function [T0, alpha, beta] = solve_loop_htx_in_explicit(cmp, mdlInput, estimated
     m_bat  = m_tot_bat - m_dcdc;
     m_mix  = m_bat + m_dcdc;                                
 
-    [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot);
-    [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput);
+    [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot, P);
+    [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput, P);
 
     a_T2_T0 = a_heat * a_htx;
     b_T2    = a_heat * b_htx + b_heat;
 
-    [a_bat,  b_bat]  = local_branch_affine_bat(cmp, estimatedParams, m_bat,  clntCp, mdlInput.state.batT);
+    [a_bat,  b_bat]  = local_branch_affine_bat(cmp, estimatedParams, m_bat,  clntCp, mdlInput.state.batT, P, isExpanded);
     [a_dcdc, b_dcdc] = local_branch_affine_dcdc(cmp, estimatedParams, m_dcdc, clntCp, mdlInput.state.dcdcT);
 
     w_bat  = m_bat /(m_bat + m_dcdc + 1e-12);
@@ -170,10 +174,10 @@ end
 % ===================== Local affine builders =====================
 
 
-function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
+function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot, P)
     refArea  = 7.854e-05; clntArea = 0.00028353;
     totalHxArea = 64*pi*0.0035*0.1;
-    ntuCorrectionFactor = 0.9;
+    ntuCorrectionFactor = P(15);
     NTU_MAX = 10;
 
     refCp  = estimatedParams.condEvapRefCp;  refRho = estimatedParams.condEvapRefRho;
@@ -211,8 +215,8 @@ function [a_htx, b_htx] = local_htx_affine(cmp, estimatedParams, m_mot)
 end
 
 
-function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput)
-    heaterEfficiency = 0.85;
+function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_tot_bat, clntCp, mdlInput, P)
+    heaterEfficiency = 0.85 * P(16);
     heatTransferCorrection = 1.5;
 
     clntMf = m_tot_bat;
@@ -224,7 +228,7 @@ function [a_heat, b_heat] = local_heater_affine(estimatedParams, controlOut, m_t
     b_heat = dT;
 end
 
-function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, clntCp, T_batK)
+function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, clntCp, T_batK, P, isExpanded)
     clntChannelD = 0.0092; hxAreaFactor = 0.736;
     convectionTuningFactor = 200; conductionTuningFactor = 0.7;
     NTU_MAX = 10;
@@ -235,7 +239,12 @@ function [a_bat, b_bat] = local_branch_affine_bat(cmp, estimatedParams, m_bat, c
     c_clnt = clntMf*clntCp;
 
     % NTU cap
-    NTU_raw = (0.1*UA) / (c_clnt + 1e-6);
+    if isExpanded
+        ntu_scale = P(7);
+    else
+        ntu_scale = 0.1;
+    end
+    NTU_raw = (ntu_scale*UA) / (c_clnt + 1e-6);
     NTU = NTU_MAX * tanh(NTU_raw / NTU_MAX);
     effectiveness = 1 - exp(-NTU);
 
@@ -329,7 +338,7 @@ function cmp = htxMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     refArea  = 7.854e-05;
     clntArea = 0.00028353;
     totalHxArea = 64*pi*0.0035*0.1;
-    ntuCorrectionFactor = 0.9;
+    ntuCorrectionFactor = P(15);
     NTU_MAX = 10;
 
     clntMf = cmp.motPump.output.clntMf;
@@ -413,7 +422,7 @@ function cmp = cabMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     avgCp_int = (glassMass_kg*glassCp_J_kgK + doorsMass_kg*doorsCp_J_kgK + roofMass_kg*roofCp_J_kgK) / totalMass_int;
     thermalMass_int = totalMass_int*avgCp_int;
 
-    q_env2int = (envT_K - cabIntT_K) / (R_total_env2int + 1e-6);
+    q_env2int = P(17)*(envT_K - cabIntT_K) / (R_total_env2int + 1e-6);
     q_air2int = alpha_Q_in2out*(cabAirT_K - cabIntT_K) / (R_total_env2int + 1e-6);
     qNet_int  = q_env2int + q_air2int;
 
@@ -453,11 +462,11 @@ function cmp = pumpMdl(mdlInput, estimatedParams, controlOut, cmp)
     cmp.batPump.output.clntMf = batClntMf;
 end
 
-function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     compDispM3perRev = 80e-6;
     isenEff = 0.65;
     mechEff = 0.9;
-    massFlowCorrection = 0.12;
+    massFlowCorrection = 0.12 * P(14);
 
     compPinPa  = mdlInput.state.compPinPa;
     compPoutPa = mdlInput.state.compPoutPa;
@@ -498,11 +507,11 @@ function cmp = compressorMdl(mdlInput, estimatedParams, controlOut, cmp)
     cmp.compressor.output.powerW    = powerW;
 end
 
-function cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp)
+function cmp = innerCondenserMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     refArea = 7.854e-05;  airArea = 0.04;
     totalHxArea = 1.1088 + 0.9952;
     wallThermalResistance = 4.1868e-07;
-    ntuAreaFactor = 18*40;
+    ntuAreaFactor = 18*40*P(13);
     NTU_MAX = 10;
 
     refMf      = cmp.compressor.output.refMf;
@@ -808,8 +817,8 @@ function cmp = chillerMdl(mdlInput, estimatedParams, controlOut, cmp)%% not used
     cmp.chiller.output.qActualW  = qActual;
 end
 
-function cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp)
-    heaterEfficiency = 0.85;
+function cmp = heaterMdl(mdlInput, estimatedParams, controlOut, cmp, P)
+    heaterEfficiency = 0.85 * P(16);
     heatTransferCorrection = 1.5;
 
     clntTinK = cmp.chiller.output.clntToutK;
@@ -933,7 +942,7 @@ function cmp = dcdcMdl(mdlInput, estimatedParams, controlOut, cmp, P)
     qRemoved = qConv + qCond;
 
     thermalMass = thermalMassTuningFactor*dcdcMassKg*dcdcCp;
-    dcdcT_dt = 0.05*(qGenerated - qRemoved)/(thermalMass + 1e-6);
+    dcdcT_dt = P(12)*(qGenerated - qRemoved)/(thermalMass + 1e-6);
 
     clntToutK = clntTinK + (qRemoved/(c_clnt + 1e-6))*gate;
 

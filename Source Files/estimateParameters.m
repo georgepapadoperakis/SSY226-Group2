@@ -90,8 +90,8 @@ function [estimatedParams] = estimateParameters(state, input, heatMeasured)
     estimatedParams.chilRefMu  = estParams.evapSideRefMu;
     estimatedParams.chilRefCp  = estParams.evapSideRefCp;
 
-    % Ambient Air Properties (assuming fixed temperature, can be made dynamic later)
-    envAirT = 263.15; % -10 C in Kelvin
+    % Ambient Air Properties
+    envAirT = input.envT;
     estimatedParams.condEvapAirRho = py.CoolProp.CoolProp.PropsSI('D', 'T', envAirT, 'P', pAtmPa, fluidAir);
     estimatedParams.condEvapAirK   = py.CoolProp.CoolProp.PropsSI('L', 'T', envAirT, 'P', pAtmPa, fluidAir);
     estimatedParams.condEvapAirMu  = py.CoolProp.CoolProp.PropsSI('V', 'T', envAirT, 'P', pAtmPa, fluidAir);

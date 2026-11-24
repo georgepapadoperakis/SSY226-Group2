@@ -1,26 +1,24 @@
-function export_simlog_runs(files, dt)
+function export_simlog_runs(files, dt, outDir)
 % EXPORT_SIMLOG_RUNS  Flatten Simscape logs into plain .mat files Python can read.
 %
-%   export_simlog_runs                      % all simlog_rule_*.mat in this folder, 1 s step
-%   export_simlog_runs({'simlog_rule_T5.mat'}, 0.5)
+%   export_simlog_runs                                  % all simlog_rule_*.mat in this folder, 1 s step
+%   export_simlog_runs({'simlog_rule_T5.mat'}, 1, 'Results/exported')
 %
 % For every input file it writes <name>_export.mat containing:
 %   time   [N x 1]  common time vector (s)
 %   data   [N x M]  every logged signal, resampled onto time
 %   names  {M x 1}  signal paths, e.g. 'simlog.Battery.Pack.T'
 %   units  {M x 1}  units of each signal
-% plus <name>_signals.txt listing all signal names (use it to pick the
-% INPUT_COLUMNS / TARGET_COLUMNS for train_state_estimator.py).
-%
-% Simscape logging objects (simscape.logging.Node) cannot be read by Python;
-% these exported files are plain numeric (-v7) and load with scipy.
+% plus <name>_signals.txt listing all signal names.
 
 if nargin < 1 || isempty(files)
     d = dir('simlog_rule_*.mat');
     files = {d.name};
 end
 if ischar(files) || isstring(files), files = cellstr(files); end
-if nargin < 2, dt = 1; end
+if nargin < 2 || isempty(dt), dt = 1; end
+if nargin < 3 || isempty(outDir), outDir = pwd; end
+if ~exist(outDir, 'dir'), mkdir(outDir); end
 if isempty(files), error('No simlog_rule_*.mat files found in %s', pwd); end
 
 for f = 1:numel(files)
@@ -50,10 +48,11 @@ for f = 1:numel(files)
     units = acc.units(:);
 
     [~, base] = fileparts(inFile);
-    outFile = [base '_export.mat'];
+    outFile = fullfile(outDir, [base '_export.mat']);
     save(outFile, 'time', 'data', 'names', 'units', '-v7');
 
-    fid = fopen([base '_signals.txt'], 'w');
+    sigFile = fullfile(outDir, [base '_signals.txt']);
+    fid = fopen(sigFile, 'w');
     for i = 1:numel(names)
         fprintf(fid, '%s\t[%s]\n', names{i}, units{i});
     end
@@ -61,7 +60,7 @@ for f = 1:numel(files)
 
     fprintf('  -> %s  (%d samples, %d signals, %.0f..%.0f s)\n', ...
         outFile, numel(time), numel(names), t0, t1);
-    fprintf('  -> %s_signals.txt (signal list)\n', base);
+    fprintf('  -> %s (signal list)\n', sigFile);
 end
 end
 
