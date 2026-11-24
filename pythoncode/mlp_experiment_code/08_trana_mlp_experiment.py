@@ -1,6 +1,6 @@
 """MLP + backpropagation genom COM; första experiment med delvis observerat tillstånd.
 
-11 indata -> 32 Tanh -> 32 Tanh -> 11 gamma. Gamma hålls konstant i varje
+11 indata -> 16 Tanh -> 16 Tanh -> 11 gamma. Gamma hålls konstant i varje
 prediktionsfönster. Träningsmålet är COM:s fria flerstegsprediktion av ÅTTA
 uppmätta tillstånd. cabIntT är en separat modelluppskattning och saknar target.
 
@@ -20,7 +20,21 @@ import matplotlib.pyplot as plt
 from com_experiment_bridge import CasadiCOM, rollout
 
 ROOT = Path(__file__).resolve().parents[2]
-SCALE = np.array([1.,1.,1.,.01,1.,1e5,1e5,1.,1.])
+# Varje prediktionsfel divideras med sin skala före kvadrering.
+# Mindre skala ger därför STÖRRE betydelse i träningsfelet.
+# Dessa är försöksvärden för normalisering, inte noggrannhetskrav.
+
+SCALE = np.array([
+    0.25,        # Motor: temperaturfel i K
+    0.25,        # Inverter: temperaturfel i K
+    0.25,        # DC/DC: temperaturfel i K
+    0.01,        # SOC: 0.01 motsvarar 1 procentenhet
+    0.25,        # Batteri: temperaturfel i K
+    0.02 * 1e5,  # Lågtryck: 0.02 bar uttryckt i Pa
+    2.00 * 1e5,  # Högtryck: 2 bar uttryckt i Pa
+    1.0,         # Inredning: ignoreras av den befintliga MASK
+    0.25,        # Kupéluft: temperaturfel i K
+])
 MASK = np.array([True,True,True,True,True,True,True,False,True])
 UNITS = ['K','K','K','fraction','K','Pa','Pa','unobserved','K']
 
@@ -30,7 +44,7 @@ class ExperimentMLP(nn.Module):
         super().__init__()
         for n,v in [('mean',mean),('std',std),('lower',lower),('upper',upper)]:
             self.register_buffer(n,torch.as_tensor(v,dtype=torch.float64).clone())
-        self.net = nn.Sequential(nn.Linear(11,32),nn.Tanh(),nn.Linear(32,32),nn.Tanh(),nn.Linear(32,11)).double()
+        self.net = nn.Sequential(nn.Linear(11,16),nn.Tanh(),nn.Linear(16,16),nn.Tanh(),nn.Linear(16,11)).double()
         nn.init.zeros_(self.net[-1].weight)
         span = np.asarray(upper)-np.asarray(lower)
         fraction = np.divide(np.asarray(nominal)-lower,span,out=np.full(11,.5),where=span>0)
@@ -79,7 +93,24 @@ def make_batch(windows,horizon,meta):
 
 def loss_batch(model,engine,group,horizon,meta,baseline=False):
     f,x,u,p,y,gprior=make_batch(group,horizon,meta)
-    gamma=gprior if baseline else model(f)
+    gamma=gprior 
+    if baseline:
+    # Referensmodellen använder alla parametrar från interpolationen.
+        gamma = gprior
+    else:
+        # Nätverket beräknar fortfarande sina 11 utgångar.
+        gamma_nn = model(f)
+
+        # Masken anger vilka parametrar som ska hämtas från interpolationen.
+        # gamma_nn har formen [antal prediktionsfönster, 11 parametrar].
+        use_prior = torch.zeros_like(gamma_nn, dtype=torch.bool)
+
+        # Python räknar från 0: index 8 och 10 motsvarar p9 och p11.
+        use_prior[:, [8, 10]] = True
+
+        # True  -> välj interpolationen.
+        # False -> välj nätverkets utgång.
+        gamma = torch.where(use_prior, gprior, gamma_nn)
     pred=rollout(engine,x,u,p,gamma)
     error=(pred-y)/torch.tensor(SCALE)
     # Tillstånd 8 har uttryckligen INGEN target. Ingen framtida uppskattning

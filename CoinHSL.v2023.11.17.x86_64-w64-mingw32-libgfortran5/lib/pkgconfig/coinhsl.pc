@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: coinhsl
+Description: A collection of HSl routines for use with IPOPT
+Version: 2023.11.17
+Libs: -L${libdir} -lcoinhsl
+Libs.private: -lopenblas -lmetis
+Cflags: -I${includedir}

@@ -74,10 +74,44 @@ def simulate_continuous(run,model,step,prior,thermo,meta,pcrit,start):
                 fixed=np.array([fields[name]for name in meta['fixed_parameter_names']],dtype=float)
                 if label=='prior':gamma=prior(x[None,:],ambient)[0]
                 else:
-                    feature=np.r_[ambient,x,run['Ib_A'][k]]
-                    with torch.no_grad():gamma=model(torch.tensor(feature[None,:],dtype=torch.float64)).numpy()[0]
-                if not np.isfinite(fixed).all()or not np.isfinite(gamma).all():
-                    raise ValueError('Invalid thermodynamic fields or gamma')
+                    # Evaluate the network using the CURRENT SIMULATED state.
+                    feature = np.r_[ambient, x, run['Ib_A'][k]]
+
+                    with torch.no_grad():
+                        gamma_nn = model(
+                            torch.tensor(feature[None, :], dtype=torch.float64)
+                        ).numpy()[0]
+
+                    # Evaluate the existing parameter function at that SAME simulated state.
+                    # No logged reference states are used here.
+                    gamma_prior = prior(x[None, :], ambient)[0]
+
+                    # Keep the other network outputs.
+                    gamma = gamma_nn.copy()
+
+                    # Diagnostic: use the existing mapping for the two parameters
+                    # that directly enter the low-pressure equation.
+                    gamma[8] = gamma_prior[8]     # p9: low-side heat-balance multiplier
+                    gamma[10] = gamma_prior[10]   # p11: low-pressure rate multiplier                
+                # Check the physical-property inputs separately.
+                # This identifies which property contains NaN or infinity.
+                if not np.isfinite(fixed).all():
+                    bad_indices = np.flatnonzero(~np.isfinite(fixed))
+                    bad_names = [
+                        meta["fixed_parameter_names"][i]
+                        for i in bad_indices
+                    ]
+                    raise ValueError(f"Invalid thermodynamic fields: {bad_names}")
+
+                # Check the parameters actually passed to the COM.
+                # Add 1 because Python index 0 corresponds to parameter p1.
+                if not np.isfinite(gamma).all():
+                    bad_indices = np.flatnonzero(~np.isfinite(gamma))
+                    bad_parameters = [
+                        f"p{i + 1}={gamma[i]}"
+                        for i in bad_indices
+                    ]
+                    raise ValueError(f"Invalid gamma parameters: {bad_parameters}")
                 x=np.array(step(x,u,fixed,gamma)).reshape(9)
                 if not np.isfinite(x).all():raise ValueError('COM step returned NaN/Inf')
                 pred[k+1]=x;status['last_recorded_s']=float(t[k+1])
@@ -182,6 +216,8 @@ def plot_sheets(output,case,protocol,run,predictions,statuses,reset_starts,horiz
             ax.plot(t,display(run['x'][:,j],j),'k--',lw=1.5,label='Logged reference')
             for label,color,title in [('prior','tab:red','COM, prior gamma interpolation'),('mlp','tab:blue','COM, MLP gamma')]:
                 y=display(predictions[label][:,j],j).copy()
+                if label == "mlp" and protocol == "continuous":
+                    title = "COM, hybrid diagnostic: p9/p11 from prior"
                 if protocol=='reset':
                     # Bryt linjen vid omstarterna, så att sammanfogade korta
                     # prediktioner inte ser ut som en fri sammanhängande kurva.
@@ -218,8 +254,23 @@ def main():
     import casadi as ca
     torch.set_num_threads(1)
     base=project/'Data'/'NN_training'
-    saved=torch.load(base/'mlp_experiment_results'/'experimental_mlp.pt',map_location='cpu',weights_only=True)
+    checkpoint_path = base / 'mlp_experiment_results' / 'experimental_mlp.pt'
+    saved=torch.load(checkpoint_path,map_location='cpu',weights_only=True)
     meta=saved['metadata'];result=saved['result'];state=saved['model_state']
+    # Show what was actually saved during training.
+    print("Loaded checkpoint:", checkpoint_path.resolve())
+
+    print(
+        "Hidden layer sizes:",
+        state["net.0.weight"].shape[0],
+        state["net.2.weight"].shape[0],
+    )
+
+    saved_scales = dict(zip(
+        meta["state_names"],
+        result["state_error_scale"],
+    ))
+
     function_file=base/'COM'/'vehicle_com.casadi'
     if hashlib.sha256(function_file.read_bytes()).hexdigest()!=result['com_sha256']:
         raise ValueError('COM-filen är en annan version än den som användes vid träningen')
@@ -251,6 +302,22 @@ def main():
     horizon=int(result['horizon_s'])
     print(f'Evaluating saved model at -{args.case} C; no retraining; -7 C untouched.',flush=True)
     full,status=simulate_continuous(run,model,step,prior,parameters,meta,PropsSI('pcrit','R134a'),start)
+    # Check whether BOTH simulations completed.
+    print("Simulation status:", status)
+
+    # Compare the two low-pressure predictions at matching valid times.
+    pressure_prior = full["prior"][:, 5] / 1e5  # Pa -> bar
+    pressure_mlp = full["mlp"][:, 5] / 1e5
+
+    valid = np.isfinite(pressure_prior) & np.isfinite(pressure_mlp)
+
+    print("Comparable low-pressure points:", np.count_nonzero(valid))
+
+    if np.any(valid):
+        difference = np.max(
+            np.abs(pressure_mlp[valid] - pressure_prior[valid])
+        )
+        print(f"Maximum low-pressure difference: {difference:.6f} bar")
     full_summary=score_and_export(output,args.case,'continuous',run,full,status,result)
     plot_sheets(output,args.case,'continuous',run,full,status,[],horizon,args.show)
     reset,starts=simulate_resets(run,model,engine,module,meta,start,horizon)

@@ -7,11 +7,11 @@ continuous,all_available_common_times,prior,batT_K,degC,3570,3.47626641783865,2.
 continuous,all_available_common_times,prior,compPin_Pa,bar,3570,0.23538169663027378,0.20594302099259584,0.48210238749022993
 continuous,all_available_common_times,prior,compPout_Pa,bar,3570,1.599169022292028,0.9683020009208465,4.207477017846536
 continuous,all_available_common_times,prior,cabAirT_K,degC,3570,1.0902402300477527,0.9088862606761063,1.9501556715458719
-continuous,all_available_common_times,mlp,motT_K,degC,3570,3.701451610759998,3.298283349512759,6.4376417738354235
-continuous,all_available_common_times,mlp,invT_K,degC,3570,3.3423318700625244,2.9734569472121115,5.508245041136433
-continuous,all_available_common_times,mlp,dcdcT_K,degC,3570,3.2575870741919775,2.859300743471118,5.535481920923246
-continuous,all_available_common_times,mlp,batSoc,percentage points,3570,0.17099999115900621,0.1330026476591935,0.30646891790998154
-continuous,all_available_common_times,mlp,batT_K,degC,3570,3.5653281183532477,3.1908123389835645,5.806476688611042
-continuous,all_available_common_times,mlp,compPin_Pa,bar,3570,0.3705431675089187,0.3134806801848277,0.725474408018167
-continuous,all_available_common_times,mlp,compPout_Pa,bar,3570,1.5250531136133454,1.019672582764868,3.9154033385225553
-continuous,all_available_common_times,mlp,cabAirT_K,degC,3570,1.2470346983409217,1.0818789486412028,2.1193883079009197
+continuous,all_available_common_times,mlp,motT_K,degC,3570,1.6921837949406917,1.346140656451326,3.840280634736814
+continuous,all_available_common_times,mlp,invT_K,degC,3570,1.5108675353716352,1.2518951734164672,3.356227823034942
+continuous,all_available_common_times,mlp,dcdcT_K,degC,3570,1.4104845531118118,1.165618684854244,3.161985939119347
+continuous,all_available_common_times,mlp,batSoc,percentage points,3570,0.1628646461712223,0.12517061107075136,0.2950488127095525
+continuous,all_available_common_times,mlp,batT_K,degC,3570,1.5733604831250412,1.1420793820774027,3.4461712839786287
+continuous,all_available_common_times,mlp,compPin_Pa,bar,3570,0.3570363451642688,0.323384908343591,0.5932894893415632
+continuous,all_available_common_times,mlp,compPout_Pa,bar,3570,1.651901220183908,1.0298368284290693,4.27524779262216
+continuous,all_available_common_times,mlp,cabAirT_K,degC,3570,1.3111252998157958,1.0842759442044168,2.618281578934898

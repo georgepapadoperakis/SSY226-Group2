@@ -1,0 +1,48 @@
+{
+  "test_case_C": -7.0,
+  "horizon_s": 30,
+  "model_retrained": false,
+  "interpolation_test": true,
+  "independent_drive_cycle_test": false,
+  "state_names": [
+    "motT_K",
+    "invT_K",
+    "dcdcT_K",
+    "batSoc",
+    "batT_K",
+    "compPin_Pa",
+    "compPout_Pa",
+    "cabIntT_K",
+    "cabAirT_K"
+  ],
+  "mlp": {
+    "normalized_mse": 0.8044247551015761,
+    "rmse_by_state": [
+      0.2302884796329919,
+      0.2412556605191544,
+      0.3902529997927407,
+      1.812240723502325e-05,
+      0.05943436462210583,
+      1804.692849181919,
+      153515.63321061523,
+      null,
+      0.2177898418704203
+    ],
+    "windows": 119
+  },
+  "prior_com": {
+    "normalized_mse": 1.0489177277085293,
+    "rmse_by_state": [
+      0.22054644673333593,
+      0.3140940825804762,
+      0.40928286627996585,
+      1.8120781189809786e-05,
+      0.05608393768231011,
+      1779.2011118279192,
+      262335.8245576065,
+      null,
+      0.22251236743712938
+    ],
+    "windows": 119
+  }
+}
